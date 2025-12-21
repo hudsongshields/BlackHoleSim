@@ -13,7 +13,7 @@ My derivations for the Newtonian and Schwarzschild numerical integration steps i
 ## Learning resources I used
 
 ### OpenGL
-- https://youtube.com/playlist?list=PLn3eTxaOtL2PHxN8EHf-ktAcN-sGETKfw&si=C4GZEtVIFcEFxFJq
+- Tutorials for setup and OpenGL utilities: https://youtube.com/playlist?list=PLn3eTxaOtL2PHxN8EHf-ktAcN-sGETKfw&si=C4GZEtVIFcEFxFJq
 
 ### Raymarching / SDFs
 - Intro: https://youtu.be/khblXafu7iA?si=wGngvNMgPpH723Zi
