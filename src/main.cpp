@@ -1,6 +1,5 @@
 #include "config.h"
-#include "LightRay.h"
-#include "Schwarzchild.h"
+#include "Raymarch.h"
 #include <iostream>
 
 
@@ -68,52 +67,7 @@ vec3 computeRayDirWorld(float u, float v, const vec3& camPos, const vec3& camFor
 
     return rayDirWorld;
 }
-vec3 traceRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir, const glm::vec3& sphereCenter, float sphereRadius, float diskRadius) {
 
-    const float tMax = 50.0f;
-
-    float hitRadius;
-    float dt = 0.1f;
-    float height = 0.015f * diskRadius;
-    vec3 r = rayOrigin;
-
-    Schwarzschild ray(r, rayDir, GM, height);
-    for (int i {0}; i < 128; ++i) {
-        LightRay::CollisionType collision = ray.checkCollision(dt, sphereRadius, diskRadius);
-
-        if (ray.t > tMax) break;
-        switch (collision) {
-            case LightRay::BLACKHOLE:
-                return vec3(0.0f, 0.0f, 0.0f);
-
-            case LightRay::DISK: {
-                float rNormalized = glm::clamp((ray.getR() - sphereRadius) / (diskRadius - sphereRadius), 0.0f, 1.0f);
-                vec3 innerColor = vec3(1.0, 0.35, 0.1);  // reddish inner
-                vec3 outerColor = vec3(1.0, 0.75, 0.25); // more orange outer
-                vec3 baseColor  = mix(innerColor, outerColor, rNormalized);
-
-
-                // Narrow bright ring near the inner edge (photon ring-ish)
-                float ring1 = exp(-pow((rNormalized - 0.15) / 0.03, 2.0));
-                float ring2 = exp(-pow((rNormalized - 0.30) / 0.06, 2.0));
-                float ring3 = exp(-pow((rNormalized - 0.51) / 0.10, 2.0));
-                float ring4 = exp(-pow((rNormalized - 0.80) / 0.16, 2.0));
-                float radialGlow = ring1 + 0.8 * ring2 + 0.5 * ring3 + 0.3 * ring4;
-
-                baseColor *= radialGlow;
-                return baseColor;
-            }
-            case LightRay::NONE:
-                break;
-        }
-    }
-    
-    vec3 backgroundTop = vec3(0.0f, 0.0f, 0.0f);
-    vec3 backgroundBot = vec3(0.1f, 0.1f, 0.25f);
-    float distance = glm::clamp(ray.y_pos(), 0.0f, 1.0f);
-    vec3 background = glm::mix(backgroundBot, backgroundTop, distance);
-    return background;
-}
 void marchColumns(
     int xBegin,
     int xEnd,
@@ -127,7 +81,7 @@ void marchColumns(
     const vec3& sphereCenter,
     float sphereRadius,
     float diskRadius,
-    std::vector<vec3>& framebuffer // shared
+    std::vector<vec3>& framebuffer
 ) {
     for (int i = xBegin; i < xEnd; ++i) {
         for (int j = 0; j < height; ++j) {
@@ -135,7 +89,8 @@ void marchColumns(
             float v = (j + 0.5f) / static_cast<float>(height);
             vec3 rayDir = computeRayDirWorld(u, v, camPos, camForward, camRight, camUp, fov, width, height);
                     
-            vec3 color = traceRay(camPos, rayDir, sphereCenter, sphereRadius, diskRadius);
+            Schwarzschild ray(camPos, rayDir, GM, 0.01f * diskRadius);
+            vec3 color = ray.traceRay(&ray, sphereCenter, sphereRadius, diskRadius);
             framebuffer[j * width + i] = color;
         }
     }

@@ -1,9 +1,7 @@
-#include "config.h"
-#include "lightRay.h"
-#include "Schwarzchild.h"
+#include "Raymarch.h"
 
 Schwarzschild::Schwarzschild(const vec3& r_init, const vec3& rayDir, float GM_value, float disk_height) 
-: LightRay(r_init, rayDir, GM_value, disk_height)
+: BaseRaymarch(r_init, rayDir, GM_value, disk_height)
 {
     rho = glm::length(position);
     u = 1.0f / rho;

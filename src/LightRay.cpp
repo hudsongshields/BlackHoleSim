@@ -1,11 +1,8 @@
 #include "config.h"
-#include "LightRay.h"
+#include "Raymarch.h"
 
 LightRay::LightRay(const vec3& r_init, const vec3& rayDir, float GM_value, float disk_height) 
-: GM {GM_value}
-, direction {glm::normalize(rayDir)}
-, diskHeight {disk_height}
-, position {r_init}
+: BaseRaymarch(r_init, rayDir, GM_value, disk_height)
 {
     r     = glm::length(vec2(r_init.x, r_init.z));
     theta = std::atan2(r_init.z, r_init.x);
@@ -47,22 +44,4 @@ void LightRay::update(float dt) {
 
     // Update Cartesian position
     t += dt;
-}
-
-LightRay::CollisionType LightRay::checkCollision(float dt, float sphereRadius, float diskRadius) {
-    // adaptive dt
-    dt = glm::clamp(dt * (rho / sphereRadius), 0.005f, dt * 2.0f);
-    update(dt);
-
-    // Check collision with black hole (sphere)
-    if (rho <= sphereRadius) {
-        return BLACKHOLE;
-    }
-
-    // Check collision with accretion disk (short cylinder)
-    if (abs(position.y) < diskHeight && (sqrt(position.x * position.x + position.z * position.z) + 0.01f) < diskRadius) {
-        return DISK;
-    }
-
-    return NONE;
 }
