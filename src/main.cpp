@@ -25,6 +25,31 @@ void updateCameraVectors(glm::vec3& camForward,glm::vec3& camRight, glm::vec3& c
     camRight   = glm::normalize(glm::cross(camForward, worldUp));
     camUp      = glm::normalize(glm::cross(camRight, camForward));
 }
+struct CameraData {
+    glm::vec3& camPos;
+    glm::vec3& camForward;
+    glm::vec3& camRight;
+    glm::vec3& worldUp;
+    float& deltaTime;
+};
+void handle_input_callback(GLFWwindow* window, const CameraData& camData) {
+    float speed = 5.0f;
+    float camSpeed = speed * camData.deltaTime;
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        camData.camPos += camData.camForward * camSpeed;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        camData.camPos -= camData.camForward * camSpeed;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        camData.camPos -= camData.camRight * camSpeed;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        camData.camPos += camData.camRight * camSpeed;
+
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+        camData.camPos += camData.worldUp * camSpeed;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+        camData.camPos -= camData.worldUp * camSpeed;
+}
 vec3 computeRayDirWorld(float u, float v, const vec3& camPos, const vec3& camForward, const vec3& camRight, const vec3& camUp, float fov, float width, float height) {
     float aspectRatio = width / height;
     vec2 ndc = vec2(
@@ -124,6 +149,14 @@ float pitch = 0.0f;
 double lastX, lastY;
 bool firstMouse = true;
 
+// Key callback function
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+        CameraData& camData = *(CameraData*)glfwGetWindowUserPointer(window);
+        handle_input_callback(window, camData);
+    }
+}
+
 int main() {
     // --- Initialize GLFW and create window ---
     GLFWwindow* window;
@@ -190,6 +223,12 @@ int main() {
 
     float fov = glm::radians(45.0f);
 
+    // Set up camera data and key callback
+    float deltaTime = 0.016f;
+    CameraData camData{camPos, camForward, camRight, worldUp, deltaTime};
+    glfwSetWindowUserPointer(window, &camData);
+    glfwSetKeyCallback(window, keyCallback);
+
 
     // Black hole and accretion disk parameters
     glm::vec3 sphereCenter          =   glm::vec3(0.0f, 0.0f, 0.0f);
@@ -217,6 +256,7 @@ int main() {
     std::vector<vec3> framebuffer(width * height);
 
     // --- Main loop ---
+    // -----------------
     int    fpsFrames   = 0;
     float  lastFPSTime = glfwGetTime();
     float lastTime = (float)glfwGetTime();
@@ -268,30 +308,12 @@ int main() {
                             yaw, pitch, worldUp);
 
 
-        // --- simple camera movement ---
-        float speed = 5.0f;
-        float camSpeed = speed * time;
-
-        // move in world axes
-        // move in circular path around origin
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-            camPos -= camForward * camSpeed;
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-            camPos += camForward * camSpeed;
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-            camPos -= camRight * camSpeed;
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-            camPos += camRight * camSpeed;
-
-        // up/down along world Y:
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-            camPos -= worldUp * camSpeed;
-        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-            camPos += worldUp * camSpeed;
+        deltaTime = time; 
 
         // calculating number of concurrent threads
         unsigned int numThreads;
         numThreads = std::thread::hardware_concurrency();
+        if (numThreads == 0) numThreads = 1;
 
         int columnsPerThread = width / numThreads;
         int remainingColumns = width % numThreads;
@@ -317,14 +339,16 @@ int main() {
         }
         thread_array.clear();
 
-        // --- Upload framebuffer to texture ---
+        // Upload framebuffer to texture
+        // -----------------------------
         glBindTexture(GL_TEXTURE_2D, sceneTex);
         glTexSubImage2D(GL_TEXTURE_2D, 0,
                         0, 0, width, height,
                         GL_RGB, GL_FLOAT,
                         framebuffer.data());
 
-        // --- Draw fullscreen triangle that samples u_scene ---
+        // Draw fullscreen triangle that samples u_scene
+        // ---------------------------------------------
         glUseProgram(shaderProgram);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sceneTex);

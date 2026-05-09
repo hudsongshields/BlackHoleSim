@@ -1,17 +1,29 @@
 #pragma once
 #include "config.h"
 
-class LightRay {
-    public:
-        float GM;
-        float diskHeight;
-        float t {0.0f};
 
+class BaseRaymarch {
+    public:
+
+
+    private:
         enum CollisionType {
             NONE,
             BLACKHOLE,
             DISK
         };
+        CollisionType checkCollision(float dt, float sphereRadius, float diskRadius);
+        virtual void update(float dt) = 0;
+
+};
+
+class LightRay : public BaseRaymarch {
+    public:
+        float GM;
+        float diskHeight;
+        float t {0.0f};
+
+
 
         LightRay(
             const vec3& r_init, 
@@ -20,7 +32,6 @@ class LightRay {
             float disk_height
         );
 
-        virtual CollisionType checkCollision(float dt, float sphereRadius, float diskRadius);
         float y_pos() const {
             return position.y;
             }
@@ -39,7 +50,7 @@ class LightRay {
         float r_dot;
 
         
-        virtual void update(float dt);
+        void update(float dt) override;
 
     private:
         float h;

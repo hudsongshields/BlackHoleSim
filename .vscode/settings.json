@@ -1,0 +1,16 @@
+{
+    "prettifySymbolsMode.substitutions": [
+        {
+            "language": "cpp",
+            "substitutions": [
+                {
+                    "ugly": "lambda",
+                    "pretty": "λ",
+                    "style": {
+                    "color": "#4fc1ff" 
+                    }
+                }
+            ]
+        }
+    ]
+}

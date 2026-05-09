@@ -17,7 +17,6 @@ class Schwarzschild : public LightRay {
         float u;
         float phi;
 
-
         vec3 e1;
         vec3 e2;
 
