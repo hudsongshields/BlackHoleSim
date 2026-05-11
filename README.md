@@ -3,7 +3,7 @@ A C++ / OpenGL black hole visualization project where I experimented with light 
 
 This isn’t meant to be a perfect/validated physics simulator — it’s a learning project focused on:
 - C++ graphics / rendering pipeline
-- stepping rays through space (Newtonian → Schwarzschild-inspired)
+- stepping rays through space
 - seeing how lensing can make one disk *look* like “two” from the observer’s view
 
 ## Notes / derivations

@@ -1,387 +1,103 @@
 #include "config.h"
 #include "Raymarch.h"
+#include "myGLFW.h"
 #include <iostream>
+#include <cmath>
 
-
-unsigned int make_shader(const std::string& vertex_filepath, const std::string& fragment_filepath);
-unsigned int make_module(const std::string& filepath, unsigned int module_type);
 constexpr float GM = 1.0f;
 
-
-float Sphere_SDF(vec3 p, vec3 center, float radius) {
-    return glm::length(p - center) - radius;
-}
-void updateCameraVectors(glm::vec3& camForward,glm::vec3& camRight, glm::vec3& camUp, float yawDeg, float pitchDeg, const glm::vec3& worldUp){
-    float yaw   = glm::radians(yawDeg);
-    float pitch = glm::radians(pitchDeg);
-
-    glm::vec3 front;
-    front.x = std::cos(yaw) * std::cos(pitch);
-    front.y = std::sin(pitch);
-    front.z = std::sin(yaw) * std::cos(pitch);
-
-    camForward = glm::normalize(front);
-    camRight   = glm::normalize(glm::cross(camForward, worldUp));
-    camUp      = glm::normalize(glm::cross(camRight, camForward));
-}
-struct CameraData {
-    glm::vec3& camPos;
-    glm::vec3& camForward;
-    glm::vec3& camRight;
-    glm::vec3& worldUp;
-    float& deltaTime;
-};
-void handle_input_callback(GLFWwindow* window, const CameraData& camData) {
-    float speed = 5.0f;
-    float camSpeed = speed * camData.deltaTime;
-
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        camData.camPos += camData.camForward * camSpeed;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camData.camPos -= camData.camForward * camSpeed;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        camData.camPos -= camData.camRight * camSpeed;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        camData.camPos += camData.camRight * camSpeed;
-
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-        camData.camPos += camData.worldUp * camSpeed;
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-        camData.camPos -= camData.worldUp * camSpeed;
-}
-vec3 computeRayDirWorld(float u, float v, const vec3& camPos, const vec3& camForward, const vec3& camRight, const vec3& camUp, float fov, float width, float height) {
-    float aspectRatio = width / height;
-    vec2 ndc = vec2(
-        (2.0f * u) - 1.0f,
-        1.0f - (2.0f * v)
-    );
-
-    vec3 rayDirCamera = glm::normalize(vec3(ndc.x * aspectRatio, ndc.y, -1.0f));
-
-    // Convert to world space
-    vec3 rayDirWorld = glm::normalize(
-        rayDirCamera.x * camRight +
-        rayDirCamera.y * camUp +
-        rayDirCamera.z * camForward
-    );
-
-    return rayDirWorld;
+vec3 computeRayDirWorld(float u, float v,
+    const vec3& camPos, const vec3& camForward, const vec3& camRight, const vec3& camUp,
+    float fov, float width, float height)
+{
+    (void)camPos; (void)fov;
+    float aspect = width / height;
+    vec2  ndc    = { (2.f * u) - 1.f, 1.f - (2.f * v) };
+    vec3  dir    = glm::normalize(vec3(ndc.x * aspect, ndc.y, -1.f));
+    return glm::normalize(dir.x * camRight + dir.y * camUp + (-dir.z) * camForward);
 }
 
 void marchColumns(
-    int xBegin,
-    int xEnd,
-    int width,
-    int height,
-    const vec3& camPos,
-    const vec3& camForward,
-    const vec3& camRight,
-    const vec3& camUp,
+    int xBegin, int xEnd,
+    int width,  int height,
+    const vec3& camPos, const vec3& camForward, const vec3& camRight, const vec3& camUp,
     float fov,
-    const vec3& sphereCenter,
-    float sphereRadius,
-    float diskRadius,
-    std::vector<vec3>& framebuffer
-) {
+    const vec3& sphereCenter, float sphereRadius, float diskRadius,
+    std::vector<vec3>& framebuffer)
+{
     for (int i = xBegin; i < xEnd; ++i) {
         for (int j = 0; j < height; ++j) {
-            float u = (i + 0.5f) / static_cast<float>(width);
-            float v = (j + 0.5f) / static_cast<float>(height);
+            float u = (i + 0.5f) / float(width);
+            float v = (j + 0.5f) / float(height);
             vec3 rayDir = computeRayDirWorld(u, v, camPos, camForward, camRight, camUp, fov, width, height);
-                    
             Schwarzschild ray(camPos, rayDir, GM, 0.01f * diskRadius);
-            vec3 color = ray.traceRay(&ray, sphereCenter, sphereRadius, diskRadius);
-            framebuffer[j * width + i] = color;
+            framebuffer[j * width + i] = ray.traceRay(&ray, sphereCenter, sphereRadius, diskRadius);
         }
-    }
-}
-
-// Camera state
-float yaw   = 90.0f;
-float pitch = 0.0f;
-
-// Mouse state
-double lastX, lastY;
-bool firstMouse = true;
-
-// Key callback function
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-        CameraData& camData = *(CameraData*)glfwGetWindowUserPointer(window);
-        handle_input_callback(window, camData);
     }
 }
 
 int main() {
-    // --- Initialize GLFW and create window ---
-    GLFWwindow* window;
+    const int width = 480, height = 270;
 
-    if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return -1;
-    }
-    const int width = 480;
-    const int height = 270;
-    window = glfwCreateWindow(width, height, "Raymarch Sphere", NULL, NULL);
-    if (!window) {
-        std::cerr << "Failed to create window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    glfwMakeContextCurrent(window);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    lastX = width / 2.0;
-    lastY = height / 2.0;
-
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        glfwTerminate();
-        return -1;
-    }
-
-    // --- Setup OpenGL state ---
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-
-    // Fullscreen triangle vertices
-    float vertices[] = {
-        -1.0f, -1.0f,
-        3.0f, -1.0f,
-        -1.0f,  3.0f
-    };
-
-    unsigned int vao, vbo;
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glEnableVertexAttribArray(0); // matches layout(location = 0) in vertex shader
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-
-    unsigned int shaderProgram = make_shader(
-        "../../src/shaders/vertex.glsl",
-        "../../src/shaders/fragment.glsl"
+    myGLFW glfw(width, height);
+    glfw.loadShaders(
+        std::string(SHADER_DIR) + "/vertex.glsl",
+        std::string(SHADER_DIR) + "/fragment.glsl"
     );
+    glfw.setupFullscreenTriangle();
+    glfw.setupSceneTexture();
 
-    glUseProgram(shaderProgram);
+    // Camera setup
+    glm::vec3 camPos(0.f, 7.f, 7.f);
+    CameraData camData(camPos);
+    glm::vec3 initForward = glm::normalize(glm::vec3(0.f) - camPos);
+    camData.yaw   = glm::degrees(std::atan2(initForward.z, initForward.x));
+    camData.pitch = glm::degrees(std::asin(glm::clamp(initForward.y, -1.f, 1.f)));
+    camData.updateCameraVectors();
+    glfw.setCameraData(camData);
 
-
-    // Static camera scene parameters
-    glm::vec3 camPos    = glm::vec3(0.0f, 7.0f, 7.0f);
-    glm::vec3 camTarget = glm::vec3(0.0f, 0.0f, 0.0f);
-    glm::vec3 worldUp   = glm::vec3(0.0f, 1.0f, 0.0f);
-
-    glm::vec3 camForward = glm::normalize(camTarget - camPos);
-    glm::vec3 camRight   = glm::normalize(glm::cross(camForward, worldUp));
-    glm::vec3 camUp      = glm::normalize(glm::cross(camRight, camForward));
-
-    float fov = glm::radians(45.0f);
-
-    // Set up camera data and key callback
-    float deltaTime = 0.016f;
-    CameraData camData{camPos, camForward, camRight, worldUp, deltaTime};
-    glfwSetWindowUserPointer(window, &camData);
-    glfwSetKeyCallback(window, keyCallback);
-
-
-    // Black hole and accretion disk parameters
-    glm::vec3 sphereCenter          =   glm::vec3(0.0f, 0.0f, 0.0f);
-    constexpr float sphereRadius    =   2.0f * GM; // r_schwarschild = 2GM
-    constexpr float diskRadius      =   sphereRadius * 2.5f;
-
-
-    // Create texture to hold the rendered scene
-    GLuint sceneTex;
-    glGenTextures(1, &sceneTex); // gejenerate texture ID
-    glBindTexture(GL_TEXTURE_2D, sceneTex); // bind as 2D texture
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F,
-                width, height, 0,
-                GL_RGB, GL_FLOAT, nullptr); // allocate empty texture
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); // no interpolation
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); // no interpolation
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // prevent wrapping
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // prevent wrapping
-
-    glUseProgram(shaderProgram);
-    GLint sceneLoc = glGetUniformLocation(shaderProgram, "u_scene");
-    glUniform1i(sceneLoc, 0);
+    const float fov              = glm::radians(45.f);
+    const glm::vec3 sphereCenter = glm::vec3(0.f);
+    constexpr float sphereRadius = 2.f * GM;
+    constexpr float diskRadius   = sphereRadius * 2.5f;
 
     std::vector<vec3> framebuffer(width * height);
+    int   fpsFrames  = 0;
+    float lastFPSTime = (float)glfwGetTime();
+    float lastTime    = (float)glfwGetTime();
 
-    // --- Main loop ---
-    // -----------------
-    int    fpsFrames   = 0;
-    float  lastFPSTime = glfwGetTime();
-    float lastTime = (float)glfwGetTime();
-    while (!glfwWindowShouldClose(window)) {
-        fpsFrames++;
-        glfwPollEvents();
+    while (!glfw.shouldClose()) {
+        glfw.pollEvents();
+        glfw.clear();
 
-        glClearColor(0.0f, 0.0f, 0.2f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        float now         = (float)glfwGetTime();
+        camData.deltaTime = now - lastTime;
+        lastTime          = now;
 
-        float currentTime = (float)glfwGetTime();
-        float time = currentTime - lastTime;
-        lastTime = currentTime;
-
-        // tracks fps (5 seconds for better accuracy)
-        float delta = currentTime - lastFPSTime;
-        if (delta >= 5.0) {
-            std::cout << "FPS: " << fpsFrames / delta << std::endl;
-            fpsFrames = 0;
-            lastFPSTime = currentTime;
+        if (now - lastFPSTime >= 5.0f) {
+            std::cout << "FPS: " << fpsFrames / (now - lastFPSTime) << "\n";
+            fpsFrames = 0; lastFPSTime = now;
         }
+        ++fpsFrames;
 
-        double xpos, ypos;
-        glfwGetCursorPos(window, &xpos, &ypos);
-
-        if (firstMouse) {
-            lastX = xpos;
-            lastY = ypos;
-            firstMouse = false;
-        }
-
-        float xoffset = float(xpos - lastX);
-        float yoffset = float(lastY - ypos); // reversed: screen Y down, pitch up
-        lastX = xpos;
-        lastY = ypos;
-
-        float sensitivity = 0.1f;
-        xoffset *= sensitivity;
-        yoffset *= sensitivity;
-
-        yaw   -= xoffset;
-        pitch += yoffset;
-
-        // clamp pitch so you don't flip upside-down
-        pitch = glm::clamp(pitch, -89.0f, 89.0f);
-
-        // Recompute camera basis from yaw/pitch
-        updateCameraVectors(camForward, camRight, camUp,
-                            yaw, pitch, worldUp);
-
-
-        deltaTime = time; 
-
-        // calculating number of concurrent threads
-        unsigned int numThreads;
-        numThreads = std::thread::hardware_concurrency();
-        if (numThreads == 0) numThreads = 1;
-
+        unsigned numThreads = std::max(1u, std::thread::hardware_concurrency());
         int columnsPerThread = width / numThreads;
-        int remainingColumns = width % numThreads;
-        std::vector<std::thread> thread_array;
-
-        for (std::size_t t = 0; t < numThreads; ++t) {
-        
-            int xBegin = t * columnsPerThread + std::min(static_cast<int>(t), remainingColumns); // starting column for this thread (adds one if within remainder)
-            int xEnd   = xBegin + columnsPerThread + (t < remainingColumns ? 1 : 0); // adds one more column if within remainder
-            thread_array.emplace_back(
-                marchColumns,
-                xBegin, xEnd,
-                width, height,
-                camPos, camForward, camRight, camUp,
-                fov,
-                sphereCenter, sphereRadius, diskRadius,
-                std::ref(framebuffer)
-            );
+        int remainderColumns = width % numThreads;
+        std::vector<std::thread> threads;
+        for (unsigned t = 0; t < numThreads; ++t) {
+            int xBegin = t * columnsPerThread + std::min((int)t, remainderColumns);
+            int xEnd   = xBegin + columnsPerThread + ((int)t < remainderColumns ? 1 : 0);
+            threads.emplace_back(marchColumns,
+                xBegin, xEnd, width, height,
+                camData.camPos, camData.camForward, camData.camRight, camData.camUp,
+                fov, sphereCenter, sphereRadius, diskRadius,
+                std::ref(framebuffer));
         }
+        for (auto& t : threads) t.join();
 
-        for (auto& thread : thread_array) {
-            thread.join();
-        }
-        thread_array.clear();
-
-        // Upload framebuffer to texture
-        // -----------------------------
-        glBindTexture(GL_TEXTURE_2D, sceneTex);
-        glTexSubImage2D(GL_TEXTURE_2D, 0,
-                        0, 0, width, height,
-                        GL_RGB, GL_FLOAT,
-                        framebuffer.data());
-
-        // Draw fullscreen triangle that samples u_scene
-        // ---------------------------------------------
-        glUseProgram(shaderProgram);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, sceneTex);
-        glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-
-        glfwSwapBuffers(window);
-        }
-    // Clean resource allocation
-    glDeleteBuffers(1, &vbo);
-    glDeleteVertexArrays(1, &vao);
-    glDeleteTextures(1, &sceneTex);
-    glDeleteProgram(shaderProgram);
-
-    // Close window
-    glfwDestroyWindow(window);
-    glfwTerminate();
+        glfw.uploadFramebuffer(framebuffer);
+        glfw.draw();
+        glfw.swapBuffers();
+    }
     return 0;
-}
-
-
-unsigned int make_shader(const std::string& vertex_filepath, const std::string& fragment_filepath) {
-
-    std::vector<unsigned int> modules;
-    modules.push_back(make_module(vertex_filepath, GL_VERTEX_SHADER));
-    modules.push_back(make_module(fragment_filepath, GL_FRAGMENT_SHADER));
-
-    unsigned int shaderProgram = glCreateProgram();
-    for (unsigned int shaderModule : modules) {
-        glAttachShader(shaderProgram, shaderModule);
-    }
-    glLinkProgram(shaderProgram);
-
-    GLint success;
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        char errorLog[512];
-        glGetProgramInfoLog(shaderProgram, 1024, NULL, errorLog);
-        std::cout << "Shader Program Linking Failed:\n" << errorLog << std::endl;
-    }
-
-    for (unsigned int shaderModule : modules) {
-        glDeleteShader(shaderModule);
-    }
-
-    return shaderProgram;
-}
-
-unsigned int make_module(const std::string& filepath, unsigned int module_type) {
-
-    std::ifstream file;
-    std::stringstream bufferedLines;
-    std::string line;
-
-    file.open(filepath);
-    while (std::getline(file, line)) {
-        bufferedLines << line << std::endl;
-    }
-    std::string shaderSource = bufferedLines.str();
-
-    if (shaderSource.empty()) {
-        std::cerr << "Shader file is empty or could not be read: " << filepath << "\n";
-    }
-
-    const char* shaderSrc = shaderSource.c_str();
-    bufferedLines.str("");
-    file.close();
-
-    unsigned int shaderModule = glCreateShader(module_type);
-    glShaderSource(shaderModule, 1, &shaderSrc, NULL);
-    glCompileShader(shaderModule);
-
-    int success;
-    glGetShaderiv(shaderModule, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        char errorLog[512];
-        glGetShaderInfoLog(shaderModule, 1024, NULL, errorLog);
-        std::cout << "Shader Module Compilation Failed:\n" << errorLog << std::endl;
-    }
-    return shaderModule;
 }

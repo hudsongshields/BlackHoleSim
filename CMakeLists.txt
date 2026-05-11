@@ -21,5 +21,6 @@ target_include_directories(black_hole_sim PRIVATE
 )
 
 target_compile_definitions(black_hole_sim PRIVATE GLFW_INCLUDE_NONE)
+target_compile_definitions(black_hole_sim PRIVATE SHADER_DIR=\"${CMAKE_SOURCE_DIR}/src/shaders\")
 
 target_link_libraries(black_hole_sim glfw OpenGL::GL)

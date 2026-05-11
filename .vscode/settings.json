@@ -1,4 +1,8 @@
 {
+    "cmake.buildBeforeRun": true,
+    "cmake.configureOnEdit": true,
+    "cmake.configureOnOpen": true,
+    "cmake.defaultBuildTarget": "black_hole_sim",
     "prettifySymbolsMode.substitutions": [
         {
             "language": "cpp",

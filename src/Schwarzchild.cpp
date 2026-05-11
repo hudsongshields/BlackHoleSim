@@ -25,7 +25,6 @@ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3& rayDir, float GM_va
 // Override update method to implement Schwarzschild solution
 void Schwarzschild::update(float lambda) {
     phi += (b * u * u) * lambda;
-
     r_dot = 1.0f - (1.0f - 2.0f * GM * u) * (b * b * u * u);
     if (r_dot <= 0.0f) r_dot = 0.0f;
     r_dot = std::sqrt(r_dot);
@@ -36,7 +35,6 @@ void Schwarzschild::update(float lambda) {
     }
     r_dot = sign * r_dot;
     rho += r_dot * lambda;
-
     u = 1.0f / rho;
 
     // reconstruct y when theta=pi/2, phi = phi, and rh0 = rho
@@ -49,6 +47,5 @@ void Schwarzschild::update(float lambda) {
     // Update Cartesian position
     t += lambda;
 }
-
 
 

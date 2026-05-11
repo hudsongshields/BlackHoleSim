@@ -20,3 +20,7 @@
 
 using glm::vec3; 
 using glm::vec2;
+
+#ifndef SHADER_DIR
+#define SHADER_DIR "./src/shaders"
+#endif
