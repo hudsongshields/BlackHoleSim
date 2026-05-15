@@ -9,7 +9,7 @@
             "substitutions": [
                 {
                     "ugly": "lambda",
-                    "pretty": "λ",
+                    "pretty": "lambda", //"λ",
                     "style": {
                     "color": "#4fc1ff" 
                     }

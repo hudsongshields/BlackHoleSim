@@ -1,43 +1,56 @@
-#include "config.h"
-#include "Raymarch.h"
-#include "myGLFW.h"
+#include "GLFW/glfw3.h"
+#include "config.hpp"
+#include "Raymarch.hpp"
+#include "cuda_runtime_api.h"
+#include "driver_types.h"
+#include "myGLFW.hpp"
+#include "myRender.hpp"
 #include <iostream>
 #include <cmath>
 
-constexpr float GM = 1.0f;
+#include <cuda_runtime.h>
+#include <cuda_gl_interop.h>
 
-vec3 computeRayDirWorld(float u, float v,
-    const vec3& camPos, const vec3& camForward, const vec3& camRight, const vec3& camUp,
-    float fov, float width, float height)
-{
-    (void)camPos; (void)fov;
-    float aspect = width / height;
-    vec2  ndc    = { (2.f * u) - 1.f, 1.f - (2.f * v) };
-    vec3  dir    = glm::normalize(vec3(ndc.x * aspect, ndc.y, -1.f));
-    return glm::normalize(dir.x * camRight + dir.y * camUp + (-dir.z) * camForward);
+
+extern "C" {
+    __declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
+    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 }
+   #define CUDA_CHECK(expr_to_check) do {            \
+    cudaError_t result  = expr_to_check;          \
+    if(result != cudaSuccess)                     \
+    {                                             \
+        fprintf(stderr,                           \
+                "CUDA Runtime Error: %s:%i:%d = %s\n", \
+                __FILE__,                         \
+                __LINE__,                         \
+                result,\
+                cudaGetErrorString(result));      \
+    }                                             \
+} while(0)
 
-void marchColumns(
-    int xBegin, int xEnd,
-    int width,  int height,
-    const vec3& camPos, const vec3& camForward, const vec3& camRight, const vec3& camUp,
-    float fov,
-    const vec3& sphereCenter, float sphereRadius, float diskRadius,
-    std::vector<vec3>& framebuffer)
-{
-    for (int i = xBegin; i < xEnd; ++i) {
-        for (int j = 0; j < height; ++j) {
-            float u = (i + 0.5f) / float(width);
-            float v = (j + 0.5f) / float(height);
-            vec3 rayDir = computeRayDirWorld(u, v, camPos, camForward, camRight, camUp, fov, width, height);
-            Schwarzschild ray(camPos, rayDir, GM, 0.01f * diskRadius);
-            framebuffer[j * width + i] = ray.traceRay(&ray, sphereCenter, sphereRadius, diskRadius);
+
+int main(int argc, char** argv) {
+
+    std::string device;
+    if (argc == 1) {
+        device = "cpu";
+    }
+    else if (argc == 2) {
+        device = argv[1];
+        if (device == "cpu") {
+            std::cout << "Using CPU for rendering\n";
+        } else if (device == "cuda") {
+            std::cout << "Using CUDA for rendering\n";
+        } else {
+            std::cerr << "Unknown device: " << device << "\n";
+            return -1;
         }
     }
-}
-
-int main() {
-    const int width = 480, height = 270;
+    else {
+        std::cerr << "Usage: " << argv[0] << " <device>\n";
+        return -1;
+    }
 
     myGLFW glfw(width, height);
     glfw.loadShaders(
@@ -56,16 +69,49 @@ int main() {
     camData.updateCameraVectors();
     glfw.setCameraData(camData);
 
-    const float fov              = glm::radians(45.f);
-    const glm::vec3 sphereCenter = glm::vec3(0.f);
-    constexpr float sphereRadius = 2.f * GM;
-    constexpr float diskRadius   = sphereRadius * 2.5f;
 
-    std::vector<vec3> framebuffer(width * height);
     int   fpsFrames  = 0;
     float lastFPSTime = (float)glfwGetTime();
     float lastTime    = (float)glfwGetTime();
 
+    if (device == "cuda") {
+        std::cout << "Starting CUDA rendering\n";
+        
+    }
+    else if (device == "cpu") {
+        std::cout << "Starting CPU rendering\n";
+    }
+    // FOR CPU
+    std::vector<vec3> framebuffer(width * height);
+
+    // FOR GPU
+    dim3 blockSize(32, 16);
+    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
+    int N = width * height;
+    int wordsPerThread = (N + (gridSize.x * blockSize.x) - 1) / (gridSize.x * blockSize.x);
+    
+
+    GLuint pbo = 0;
+    cudaGraphicsResource* cudaResource = nullptr;
+    CameraData* camPtr = nullptr;
+    if (device == "cuda") {
+        glGenBuffers(1, &pbo);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+        glBufferData(GL_PIXEL_UNPACK_BUFFER, width * height * sizeof(vec3), nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+        unsigned int cudaDeviceCount = 0;
+        int cudaDevices[1] = {0};
+        CUDA_CHECK(cudaGLGetDevices(&cudaDeviceCount, cudaDevices, 1, cudaGLDeviceListAll));
+        std::cout << "GL Renderer: " << glGetString(GL_RENDERER) << std::endl;
+        std::cout << "GL Vendor: " << glGetString(GL_VENDOR) << std::endl;
+        CUDA_CHECK(cudaSetDevice(cudaDevices[0]));
+        CUDA_CHECK(cudaGraphicsGLRegisterBuffer(&cudaResource, pbo, cudaGraphicsRegisterFlagsWriteDiscard));
+        
+        CUDA_CHECK(cudaMalloc((void**)&camPtr, sizeof(CameraData)));
+        CUDA_CHECK(cudaMemcpy(camPtr, &camData, sizeof(CameraData), cudaMemcpyHostToDevice));
+    }
+    
     while (!glfw.shouldClose()) {
         glfw.pollEvents();
         glfw.clear();
@@ -79,25 +125,26 @@ int main() {
             fpsFrames = 0; lastFPSTime = now;
         }
         ++fpsFrames;
-
-        unsigned numThreads = std::max(1u, std::thread::hardware_concurrency());
-        int columnsPerThread = width / numThreads;
-        int remainderColumns = width % numThreads;
-        std::vector<std::thread> threads;
-        for (unsigned t = 0; t < numThreads; ++t) {
-            int xBegin = t * columnsPerThread + std::min((int)t, remainderColumns);
-            int xEnd   = xBegin + columnsPerThread + ((int)t < remainderColumns ? 1 : 0);
-            threads.emplace_back(marchColumns,
-                xBegin, xEnd, width, height,
-                camData.camPos, camData.camForward, camData.camRight, camData.camUp,
-                fov, sphereCenter, sphereRadius, diskRadius,
-                std::ref(framebuffer));
+        if (device == "cpu") render(&glfw, camData, &framebuffer);
+        if (device == "cuda") {
+            cudaMemcpy(camPtr, &camData, sizeof(CameraData), cudaMemcpyHostToDevice);
+            launchCudaRender(cudaResource, width, height, gridSize, blockSize, wordsPerThread, camPtr);
+            cudaDeviceSynchronize();
+            glfw.uploadFromPBO(pbo);
         }
-        for (auto& t : threads) t.join();
-
-        glfw.uploadFramebuffer(framebuffer);
         glfw.draw();
         glfw.swapBuffers();
     }
+
+    if (cudaResource != nullptr) {
+        cudaGraphicsUnregisterResource(cudaResource);
+    }
+    if (pbo != 0) {
+        glDeleteBuffers(1, &pbo);
+    }
+    if (camPtr != nullptr) {
+        cudaFree(camPtr);
+    }
+
     return 0;
 }

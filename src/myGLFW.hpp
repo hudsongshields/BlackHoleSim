@@ -1,5 +1,5 @@
 #pragma once
-#include "config.h"
+#include "config.hpp"
 
 // CameraData - owns all camera and mouse state
 // ---------------------------------------------------------------------------
@@ -47,6 +47,8 @@ struct CameraData {
         camUp      = glm::normalize(glm::cross(camRight,   camForward));
     }
 };
+
+
 
 // myGLFW - manages window, GL context, shaders, fullscreen triangle, texture
 // ---------------------------------------------------------------------------
@@ -102,7 +104,6 @@ public:
         glfwTerminate();
     }
 
-    // Bind camera and register input callbacks
     void setCameraData(CameraData& cam) {
         _camData = &cam;
         _camData->init(_width, _height);
@@ -136,7 +137,7 @@ public:
         glBindVertexArray(0);
     }
 
-    void setupSceneTexture(const std::string& uniformName = "u_scene") {
+    unsigned int setupSceneTexture(const std::string& uniformName = "u_scene") {
         glGenTextures(1, &_sceneTex);
         glBindTexture(GL_TEXTURE_2D, _sceneTex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, _width, _height, 0, GL_RGB, GL_FLOAT, nullptr);
@@ -144,11 +145,19 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glUseProgram(_shader);
         glUniform1i(glGetUniformLocation(_shader, uniformName.c_str()), 0);
+        return _sceneTex;
     }
 
-    void uploadFramebuffer(const std::vector<vec3>& fb) {
+    void uploadFramebuffer(const std::vector<vec3> *fb) {
         glBindTexture(GL_TEXTURE_2D, _sceneTex);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_FLOAT, fb.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_FLOAT, fb->data());
+    }
+
+    void uploadFromPBO(GLuint pbo) {
+        glBindTexture(GL_TEXTURE_2D, _sceneTex);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_FLOAT, nullptr);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     }
 
     void draw() {
@@ -165,6 +174,7 @@ public:
     void clear(float r = 0.f, float g = 0.f, float b = 0.2f, float a = 1.f) {
         glClearColor(r, g, b, a); glClear(GL_COLOR_BUFFER_BIT);
     }
+
 
     GLFWwindow* window() const { return _window.get(); }
 

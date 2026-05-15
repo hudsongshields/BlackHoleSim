@@ -1,8 +1,9 @@
-#include "config.h"
-#include "Raymarch.h"
+#include "config.hpp"
+#include "Raymarch.hpp"
 
-LightRay::LightRay(const vec3& r_init, const vec3& rayDir, float GM_value, float disk_height) 
-: BaseRaymarch(r_init, rayDir, GM_value, disk_height)
+__host__ __device__ LightRay::LightRay(const vec3& r_init, const vec3& rayDir,
+    float GM, const vec3& sphereCenter, float sphereRadius, float diskRadius)
+: BaseRaymarch(r_init, rayDir, GM, sphereCenter, sphereRadius, diskRadius)
 {
     r     = glm::length(vec2(r_init.x, r_init.z));
     theta = std::atan2(r_init.z, r_init.x);
@@ -17,7 +18,7 @@ LightRay::LightRay(const vec3& r_init, const vec3& rayDir, float GM_value, float
     h = r * v_t;
 }
 
-void LightRay::update(float dt) {
+__host__ __device__ void LightRay::update(float dt) {
     // Compute gravitational acceleration
     rho = std::sqrt(r * r + y * y);
     float g_magnitude = GM / (rho * rho);

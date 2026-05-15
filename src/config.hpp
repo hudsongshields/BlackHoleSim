@@ -1,4 +1,4 @@
-#pragma once // header guard
+#pragma once
 #include <iostream>
 #include "../dependencies/glad/glad.h"
 #include "../dependencies/GLFW/glfw3.h"
@@ -24,3 +24,5 @@ using glm::vec2;
 #ifndef SHADER_DIR
 #define SHADER_DIR "./src/shaders"
 #endif
+
+#include "constants.hpp"

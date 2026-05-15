@@ -1,29 +1,41 @@
 #pragma once
-#include "config.h"
+#include "config.hpp"
+
+#ifndef __CUDACC__
+#  ifndef __host__
+#    define __host__
+#  endif
+#  ifndef __device__
+#    define __device__
+#  endif
+#endif
 
 
 class BaseRaymarch {
     public:
-        float GM;
         float diskHeight;
 
-        BaseRaymarch(const vec3& r_init, const vec3& rayDir, float GM_value, float disk_height)
-            : GM{GM_value}
-            , diskHeight{disk_height}
-            , position{r_init}
+        __host__ __device__ BaseRaymarch(const vec3& r_init, const vec3& rayDir,
+            float GM, const vec3& sphereCenter, float sphereRadius, float diskRadius)
+            : position{r_init}
             , direction{glm::normalize(rayDir)}
+            , GM{GM}
+            , sphereCenter{sphereCenter}
+            , sphereRadius{sphereRadius}
+            , diskRadius{diskRadius}
         {
+            diskHeight = 0.01f * diskRadius;
             rho = glm::length(r_init);
         }
 
-        float y_pos() const {
+        __host__ __device__ float y_pos() const {
             return position.y;
             }
 
-        float getR() const {
+        __host__ __device__ float getR() const {
             return r;
         }
-        vec3 traceRay(BaseRaymarch *ray, const glm::vec3& sphereCenter, float sphereRadius, float diskRadius) {
+        __host__ __device__ vec3 traceRay() {
 
             const float tMax = 50.0f;
 
@@ -31,15 +43,15 @@ class BaseRaymarch {
             float dt = 0.1f;
 
             for (int i {0}; i < 128; ++i) {
-                CollisionType collision = ray->checkCollision(dt, sphereRadius, diskRadius);
+                CollisionType collision = checkCollision(dt);
 
-                if (ray->t > tMax) break;
+                if (t > tMax) break;
                 switch (collision) {
                     case BLACKHOLE:
                         return vec3(0.0f, 0.0f, 0.0f);
 
                     case DISK: {
-                        float rNormalized = glm::clamp((ray->getR() - sphereRadius) / (diskRadius - sphereRadius), 0.0f, 1.0f);
+                        float rNormalized = glm::clamp((getR() - sphereRadius) / (diskRadius - sphereRadius), 0.0f, 1.0f);
                         vec3 innerColor = vec3(1.0, 0.35, 0.1);  // reddish inner
                         vec3 outerColor = vec3(1.0, 0.75, 0.25); // more orange outer
                         vec3 baseColor  = mix(innerColor, outerColor, rNormalized);
@@ -62,7 +74,7 @@ class BaseRaymarch {
             
             vec3 backgroundTop = vec3(0.0f, 0.0f, 0.0f);
             vec3 backgroundBot = vec3(0.1f, 0.1f, 0.25f);
-            float distance = glm::clamp(ray->y_pos(), 0.0f, 1.0f);
+            float distance = glm::clamp(y_pos(), 0.0f, 1.0f);
             vec3 background = glm::mix(backgroundBot, backgroundTop, distance);
             return background;
         }
@@ -70,6 +82,11 @@ class BaseRaymarch {
     protected:
         vec3 position;
         vec3 direction;
+
+        float GM;
+        vec3  sphereCenter;
+        float sphereRadius;
+        float diskRadius;
 
         float rho;
         float theta;
@@ -84,7 +101,7 @@ class BaseRaymarch {
             BLACKHOLE,
             DISK
         };
-        CollisionType checkCollision(float dt, float sphereRadius, float diskRadius) {
+        __host__ __device__ CollisionType checkCollision(float dt) {
             // adaptive dt
             dt = glm::clamp(dt * (rho / sphereRadius), 0.005f, dt * 2.0f);
             update(dt);
@@ -101,18 +118,17 @@ class BaseRaymarch {
 
             return NONE;
         }
-        virtual void update(float dt) = 0;
+        __host__ __device__ virtual void update(float dt) = 0;
 
 };
 
 class LightRay : public BaseRaymarch {
     public:
 
-        LightRay(
-            const vec3& r_init, 
-            const vec3& rayDir, 
-            float GM_value, 
-            float disk_height
+        __host__ __device__ LightRay(
+            const vec3& r_init,
+            const vec3& rayDir,
+            float GM, const vec3& sphereCenter, float sphereRadius, float diskRadius
         );
 
     private:
@@ -123,18 +139,17 @@ class LightRay : public BaseRaymarch {
         float theta_dot;
         float y_dot;
 
-        void update(float dt) override;
+        __host__ __device__ void update(float dt) override;
 
 };
 
 class Schwarzschild : public BaseRaymarch {
     public:
         float b;
-        Schwarzschild(
-            const vec3& r_init, 
-            const vec3& rayDir, 
-            float GM_value, 
-            float disk_height
+        __host__ __device__ Schwarzschild(
+            const vec3& r_init,
+            const vec3& rayDir,
+            float GM, const vec3& sphereCenter, float sphereRadius, float diskRadius
         );
 
 
@@ -147,5 +162,5 @@ class Schwarzschild : public BaseRaymarch {
 
         int sign;
 
-        void update(float dt) override;
+        __host__ __device__ void update(float dt) override;
 };

@@ -1,7 +1,10 @@
-#include "Raymarch.h"
+#include "Raymarch.hpp"
+#include <cstdlib>
+#include <cuda_runtime.h>
 
-Schwarzschild::Schwarzschild(const vec3& r_init, const vec3& rayDir, float GM_value, float disk_height) 
-: BaseRaymarch(r_init, rayDir, GM_value, disk_height)
+__host__ __device__ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3& rayDir,
+    float GM, const vec3& sphereCenter, float sphereRadius, float diskRadius)
+: BaseRaymarch(r_init, rayDir, GM, sphereCenter, sphereRadius, diskRadius)
 {
     rho = glm::length(position);
     u = 1.0f / rho;
@@ -11,7 +14,7 @@ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3& rayDir, float GM_va
     e1 = glm::normalize(position);
     e2 = glm::cross(normal, e1);
     if (length(e2) < 0.0001f) {
-        std::cout << "Warning: e2 vector length is zero in Schwarzschild constructor." << std::endl;
+        // 
     }
     e2 = glm::normalize(e2);
 
@@ -23,7 +26,7 @@ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3& rayDir, float GM_va
 }
 
 // Override update method to implement Schwarzschild solution
-void Schwarzschild::update(float lambda) {
+__host__ __device__ void Schwarzschild::update(float lambda) {
     phi += (b * u * u) * lambda;
     r_dot = 1.0f - (1.0f - 2.0f * GM * u) * (b * b * u * u);
     if (r_dot <= 0.0f) r_dot = 0.0f;
