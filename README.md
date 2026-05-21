@@ -3,6 +3,7 @@ A C++ / OpenGL black hole visualization project where I experimented with light 
 
 This isn’t meant to be a perfect/validated physics simulator — it’s a learning project focused on:
 - C++ graphics / rendering pipeline
+- CUDA programming and GPU memory interfacing
 - stepping rays through space
 - seeing how lensing can make one disk *look* like “two” from the observer’s view
 
@@ -14,6 +15,7 @@ My derivations for the Newtonian and Schwarzschild numerical integration steps i
 
 ### OpenGL
 - Tutorials for setup and OpenGL utilities: https://youtube.com/playlist?list=PLn3eTxaOtL2PHxN8EHf-ktAcN-sGETKfw&si=C4GZEtVIFcEFxFJq
+- Single handedly best source for intuition on how everything works: learnopengl.com
 
 ### Raymarching / SDFs
 - Intro: https://youtu.be/khblXafu7iA?si=wGngvNMgPpH723Zi
@@ -25,5 +27,9 @@ My derivations for the Newtonian and Schwarzschild numerical integration steps i
 - Derivation (another perspective): https://youtu.be/VCHFCXgYdvY?si=ORQCPyDTA9AfSyg_
 
 ## If you’re browsing the code
-The core idea is: generate a camera ray → step it forward → check for BH/disk intersection → shade the hit.
-Feel free to open issues if something’s confusing or you spot mistakes — I’m happy to improve the explanations.
+The core idea is: generate a camera ray -> step it forward -> check for BH/disk intersection -> shade the hit.
+Feel free to open issues if something’s confusing or you spot mistakes - I’m happy to improve the explanations.
+
+## Next steps
+- The accretion disk could use n-body interactions and the Schwarzschild metric for improved accuracy
+- Implementing n-body interactions would also pose a more interesting GPU programming challenge
