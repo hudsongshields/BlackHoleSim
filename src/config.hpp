@@ -20,9 +20,15 @@
 
 using glm::vec3; 
 using glm::vec2;
+using glm::vec4;
 
 #ifndef SHADER_DIR
 #define SHADER_DIR "./src/shaders"
 #endif
 
+#ifndef ASSET_DIR
+#define ASSET_DIR "./src/assets"
+#endif
+
 #include "constants.hpp"
+#include <cuda_runtime.h>

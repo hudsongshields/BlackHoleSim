@@ -1,5 +1,6 @@
 #pragma once
 #include "config.hpp"
+#include "particles.hpp"
 
 #ifndef __CUDACC__
 #  ifndef __host__
@@ -24,59 +25,45 @@ class BaseRaymarch {
             , sphereRadius{sphereRadius}
             , diskRadius{diskRadius}
         {
-            diskHeight = 0.01f * diskRadius;
+            diskHeight = 0.02f * diskRadius;
             rho = glm::length(r_init);
         }
 
         __host__ __device__ float y_pos() const {
             return position.y;
-            }
+        }
 
         __host__ __device__ float getR() const {
             return r;
         }
-        __host__ __device__ vec3 traceRay() {
+        __host__ __device__ vec4 traceRay(ParticleManager* particleManager = nullptr) {
 
-            const float tMax = 50.0f;
+            const float tMax = 25.0f;
 
-            float hitRadius;
             float dt = 0.1f;
 
-            for (int i {0}; i < 128; ++i) {
-                CollisionType collision = checkCollision(dt);
-
+            for (int i {0}; i < 256; ++i) {
+                CollisionType collision = checkCollision(dt, particleManager);
+                
                 if (t > tMax) break;
                 switch (collision) {
                     case BLACKHOLE:
-                        return vec3(0.0f, 0.0f, 0.0f);
-
+                        return vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                    
                     case DISK: {
-                        float rNormalized = glm::clamp((getR() - sphereRadius) / (diskRadius - sphereRadius), 0.0f, 1.0f);
-                        vec3 innerColor = vec3(1.0, 0.35, 0.1);  // reddish inner
-                        vec3 outerColor = vec3(1.0, 0.75, 0.25); // more orange outer
-                        vec3 baseColor  = mix(innerColor, outerColor, rNormalized);
-
-
-                        // Narrow bright ring near the inner edge (photon ring-ish)
-                        float ring1 = exp(-pow((rNormalized - 0.15) / 0.03, 2.0));
-                        float ring2 = exp(-pow((rNormalized - 0.30) / 0.06, 2.0));
-                        float ring3 = exp(-pow((rNormalized - 0.51) / 0.10, 2.0));
-                        float ring4 = exp(-pow((rNormalized - 0.80) / 0.16, 2.0));
-                        float radialGlow = ring1 + 0.8 * ring2 + 0.5 * ring3 + 0.3 * ring4;
-
-                        baseColor *= radialGlow;
-                        return baseColor;
+                        float speed = glm::clamp(particleSpeed / 2.5f, 0.0f, 1.0f);
+                        float brightness = 0.4f + 1.2f * speed;
+                        vec3 cool = vec3(1.80f, 0.55f, 0.15f);
+                        vec3 hot  = vec3(0.40f, 0.80f, 2.20f);
+                        vec3 color = glm::mix(cool, hot, speed);
+                        return brightness * vec4(color, 1.0f);
                     }
+                    
                     case NONE:
                         break;
                 }
             }
-            
-            vec3 backgroundTop = vec3(0.0f, 0.0f, 0.0f);
-            vec3 backgroundBot = vec3(0.1f, 0.1f, 0.25f);
-            float distance = glm::clamp(y_pos(), 0.0f, 1.0f);
-            vec3 background = glm::mix(backgroundBot, backgroundTop, distance);
-            return background;
+            return vec4(glm::normalize(direction), -1.0f);
         }
 
     protected:
@@ -94,16 +81,24 @@ class BaseRaymarch {
         float r_dot;
 
         float t {0.0f};
+        float nearestParticleDist {1000.0f};
 
     private:
+        float particleSpeed = 0.0f;
         enum CollisionType {
             NONE,
             BLACKHOLE,
             DISK
         };
-        __host__ __device__ CollisionType checkCollision(float dt) {
+        __host__ __device__ CollisionType checkCollision(float dt, ParticleManager* particleManager = nullptr) {
             // adaptive dt
             dt = glm::clamp(dt * (rho / sphereRadius), 0.005f, dt * 2.0f);
+            // now adapt to distance to nearest particle if in disk region
+            if (abs(position.y) < diskHeight && (sqrt(position.x * position.x + position.z * position.z) + 0.01f) < diskRadius) {
+                if (particleManager) {
+                    dt = glm::min(dt, glm::clamp(nearestParticleDist * 0.5f, 0.001f, dt));
+                }
+            }
             update(dt);
 
             // Check collision with black hole (sphere)
@@ -113,7 +108,20 @@ class BaseRaymarch {
 
             // Check collision with accretion disk (short cylinder)
             if (abs(position.y) < diskHeight && (sqrt(position.x * position.x + position.z * position.z) + 0.01f) < diskRadius) {
-                return DISK;
+                // Check for collision with particle in accretion disk
+                if (particleManager) {
+                    nearestParticleDist = 1000.0f;
+                    for (int i {0}; i < particleManager->numParticles; ++i) {
+                        float dist = glm::length(position - (*particleManager)[i].position) - (*particleManager)[i].radius;
+                        if (dist < nearestParticleDist) {
+                            nearestParticleDist = dist;
+                        }
+                        if (dist < 0.01f) {
+                            particleSpeed = glm::length((*particleManager)[i].velocity);
+                            return DISK;
+                        }
+                    }
+                }
             }
 
             return NONE;
@@ -157,8 +165,8 @@ class Schwarzschild : public BaseRaymarch {
         float u;
         float phi;
 
-        vec3 e1;
-        vec3 e2;
+        vec3 radial_dir;
+        vec3 tangential_dir;
 
         int sign;
 

@@ -11,12 +11,12 @@ __host__ __device__ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3&
     b = glm::length(glm::cross(position, direction));
 
     vec3 normal = glm::cross(position, direction);
-    e1 = glm::normalize(position);
-    e2 = glm::cross(normal, e1);
-    if (length(e2) < 0.0001f) {
+    radial_dir = glm::normalize(position);
+    tangential_dir = glm::cross(normal, radial_dir);
+    if (length(tangential_dir) < 0.0001f) {
         // 
     }
-    e2 = glm::normalize(e2);
+    tangential_dir = glm::normalize(tangential_dir);
 
     phi = 0.0f;
     sign = glm::dot(position, direction) >= 0.0f ? 1 : -1;
@@ -27,7 +27,8 @@ __host__ __device__ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3&
 
 // Override update method to implement Schwarzschild solution
 __host__ __device__ void Schwarzschild::update(float lambda) {
-    phi += (b * u * u) * lambda;
+    float phi_dot = b * u * u;
+    phi += phi_dot * lambda;
     r_dot = 1.0f - (1.0f - 2.0f * GM * u) * (b * b * u * u);
     if (r_dot <= 0.0f) r_dot = 0.0f;
     r_dot = std::sqrt(r_dot);
@@ -43,12 +44,17 @@ __host__ __device__ void Schwarzschild::update(float lambda) {
     // reconstruct y when theta=pi/2, phi = phi, and rh0 = rho
     // x = rho * cos(phi) * sin(theta)
     // y = rho * sin(phi) * sin(theta)
-    position = rho * (std::cos(phi) * e1 + std::sin(phi) * e2);
+    position = rho * (std::cos(phi) * radial_dir + std::sin(phi) * tangential_dir);
     r = glm::length(vec2(position.x, position.z));
 
 
     // Update Cartesian position
     t += lambda;
+
+    vec3 radialDir = std::cos(phi) * radial_dir + std::sin(phi) * tangential_dir;
+    vec3 angularDir = -std::sin(phi) * radial_dir + std::cos(phi) * tangential_dir;
+    vec3 tangent = r_dot * radialDir + (rho * phi_dot) * angularDir;
+    direction = glm::normalize(tangent);
 }
 
 

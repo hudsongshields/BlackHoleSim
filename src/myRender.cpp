@@ -5,25 +5,48 @@
 #include "cuda_runtime_api.h"
 #include "myGLFW.hpp"
 #include "Raymarch.hpp"
+#include "particles.hpp"
 
 #ifndef __CUDACC__
 static const dim3 threadIdx {0, 0, 0};
 static const dim3 blockIdx  {0, 0, 0};
 static const dim3 blockDim  {1, 1, 1};
 static const dim3 gridDim   {1, 1, 1};
+#define __syncthreads()
 #endif
 
-#define CUDA_CHECK(expr_to_check) do {            \
-    cudaError_t result  = expr_to_check;          \
-    if(result != cudaSuccess)                     \
-    {                                             \
-        fprintf(stderr,                           \
-                "CUDA Runtime Error: %s:%i:%d = %s\n", \
-                __FILE__,                         \
-                __LINE__,                         \
+__device__ __constant__ vec3 d_sphereCenter;
+__device__ __constant__ float d_sphereRadius;
+__device__ __constant__ float d_diskRadius;
+__device__ __constant__ float d_GM_value;
+
+
+// Error checking macros
+// ---------------------
+#define CUDA_CHECK(expr_to_check) do {                  \
+    cudaError_t result  = expr_to_check;                \
+    if(result != cudaSuccess)                           \
+    {                                                   \
+        fprintf(stderr,                                 \
+                "CUDA Runtime Error: %s:%i:%d = %s\n",  \
+                __FILE__,                               \
+                __LINE__,                               \
                 result,\
-                cudaGetErrorString(result));      \
-    }                                             \
+                cudaGetErrorString(result));            \
+    }                                                   \
+} while(0)
+
+#define CUDA_ASYNC_CHECK() do {                         \
+    cudaError_t result = cudaGetLastError();            \
+    if(result != cudaSuccess)                           \
+    {                                                   \
+        fprintf(stderr,                                 \
+                "CUDA Async Error: %s:%i:%d = %s\n",    \
+                __FILE__,                               \
+                __LINE__,                               \
+                result,\
+                cudaGetErrorString(result));            \
+    }                                                   \
 } while(0)
 
 
@@ -39,13 +62,21 @@ __host__ __device__ vec3 computeRayDirWorld(float u, float v,
 
 // GPU-Based Rendering
 //--------------------
-__global__ void render(vec3* fbo, int width, int height, int wordsPerThread, const CameraData* camData, 
-    vec3 sphereCenter, float sphereRadius, float diskRadius, float GM_value) {
+__global__ void render(vec4* fbo, int width, int height, int wordsPerThread, const CameraData* camData, ParticleManager* particleManager) {
 
+    __shared__ unsigned char sharedCamBytes[sizeof(CameraData)];
+    CameraData* sharedCamData = (CameraData*)(sharedCamBytes);
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+        *sharedCamData = *camData;
+    }
+    __syncthreads();
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
     int stride_x = blockDim.x * gridDim.x;
     int stride_y = blockDim.y * gridDim.y;
+
+    particleManager->updateParticlesDevice(0.004f, x);
+    __syncthreads();
 
     for (int i {0}; i < wordsPerThread; ++i) {
         int x_index = x + i * stride_x;
@@ -53,16 +84,51 @@ __global__ void render(vec3* fbo, int width, int height, int wordsPerThread, con
         if (x_index < width && y_index < height) {
             float u = (x_index + 0.5f) / float(width);
             float v = (y_index + 0.5f) / float(height);
-            vec3 rayDir = computeRayDirWorld(u, v, camData, width, height);
-            Schwarzschild ray(camData->camPos, rayDir, GM_value, sphereCenter, sphereRadius, diskRadius);
+            vec3 rayDir = computeRayDirWorld(u, v, sharedCamData, width, height);
+            Schwarzschild ray(sharedCamData->camPos, rayDir, d_GM_value, d_sphereCenter, d_sphereRadius, d_diskRadius);
 
-            vec3 pixel = static_cast<BaseRaymarch&>(ray).traceRay();
-            // force white
-            // vec3 pixel = vec3(0.5f, 0.5f, 0.5f);
+            vec4 pixel = static_cast<BaseRaymarch&>(ray).traceRay(particleManager);
 
             fbo[y_index * width + x_index] = pixel;
         }
     }
+}
+__host__ void init_gpu_constants() {
+    cudaMemcpyToSymbol((const void*)&d_sphereCenter, &sphereCenter, sizeof(vec3));
+    cudaMemcpyToSymbol((const void*)&d_sphereRadius, &sphereRadius, sizeof(float));
+    cudaMemcpyToSymbol((const void*)&d_diskRadius, &diskRadius, sizeof(float));
+    cudaMemcpyToSymbol((const void*)&d_GM_value, &GM, sizeof(float));
+    
+    CUDA_ASYNC_CHECK();
+}
+
+__host__ void printCudaKernelDiagnostics(dim3 blockSize) {
+    int device = 0;
+    CUDA_CHECK(cudaGetDevice(&device));
+
+    cudaDeviceProp props{};
+    CUDA_CHECK(cudaGetDeviceProperties(&props, device));
+
+    const unsigned threadsPerBlock = blockSize.x * blockSize.y * blockSize.z;
+    const bool dimsOk =
+        blockSize.x <= static_cast<unsigned>(props.maxThreadsDim[0]) &&
+        blockSize.y <= static_cast<unsigned>(props.maxThreadsDim[1]) &&
+        blockSize.z <= static_cast<unsigned>(props.maxThreadsDim[2]);
+    const bool threadsOk = threadsPerBlock <= static_cast<unsigned>(props.maxThreadsPerBlock);
+
+    std::cout << "CUDA Device: " << props.name << "\n";
+    std::cout << "  maxThreadsPerBlock: " << props.maxThreadsPerBlock << "\n";
+    std::cout << "  maxThreadsDim: ["
+              << props.maxThreadsDim[0] << ", "
+              << props.maxThreadsDim[1] << ", "
+              << props.maxThreadsDim[2] << "]\n";
+    std::cout << "Requested blockSize: ["
+              << blockSize.x << ", "
+              << blockSize.y << ", "
+              << blockSize.z << "] => threadsPerBlock="
+              << threadsPerBlock << "\n";
+    std::cout << "  Dimension check: " << (dimsOk ? "PASS" : "FAIL") << "\n";
+    std::cout << "  Threads check: " << (threadsOk ? "PASS" : "FAIL") << "\n";
 }
 
 __host__ void launchCudaRender(
@@ -72,21 +138,17 @@ __host__ void launchCudaRender(
     dim3 gridSize,
     dim3 blockSize,
     int wordsPerThread,
-    const CameraData* camData
+    const CameraData* camData,
+    ParticleManager* particleManager
 ) {
-    vec3* fbo;
+    vec4* fbo;
     size_t numBytes;
-    float GM_value = GM;
-    // get last cuda error
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA Runtime Error before kernel launch: %s\n", cudaGetErrorString(err));
-        std::exit(-1);
-    }
+
+    CUDA_ASYNC_CHECK();
     CUDA_CHECK(cudaGraphicsMapResources(1, &cudaResource, 0));
     CUDA_CHECK(cudaGraphicsResourceGetMappedPointer((void**)&fbo, &numBytes, cudaResource));
 #ifdef __CUDACC__
-    render<<<gridSize, blockSize>>>(fbo, width, height, wordsPerThread, camData, ::sphereCenter, ::sphereRadius, ::diskRadius, GM_value);
+    render<<<gridSize, blockSize>>>(fbo, width, height, wordsPerThread, camData, particleManager);
 #endif
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaResource, 0));
 }
@@ -99,7 +161,7 @@ void marchColumns(
     int xBegin, int xEnd,
     int width,  int height,
     const CameraData *camData,
-    vec3 *framebuffer)
+    vec4 *framebuffer)
 {
     for (int i = xBegin; i < xEnd; ++i) {
         for (int j = 0; j < height; ++j) {
@@ -112,7 +174,7 @@ void marchColumns(
     }
 }
 
-__host__ void render(myGLFW *glfw, const CameraData& camData, std::vector<vec3> *framebuffer) {
+__host__ void render(myGLFW *glfw, const CameraData& camData, std::vector<vec4> *framebuffer) {
 
     unsigned numThreads = std::max(1u, std::thread::hardware_concurrency());
     int columnsPerThread = width / numThreads;
