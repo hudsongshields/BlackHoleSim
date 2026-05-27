@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "cuda_runtime.h"
 #include "cuda_runtime_api.h"
 #include "driver_types.h"
 #include "myGLFW.hpp"
@@ -23,8 +24,9 @@ extern "C" {
                 "CUDA Runtime Error: %s:%i:%d = %s\n", \
                 __FILE__,                         \
                 __LINE__,                         \
-                result,\
+                result,                           \
                 cudaGetErrorString(result));      \
+        fflush(stderr);                           \
     }                                             \
 } while(0)
 
@@ -100,7 +102,7 @@ int main(int argc, char** argv) {
     }
     // FOR CPU
     std::vector<vec4> framebuffer(width * height);
-    int numParticles = 2000;
+    int numParticles = 10000;
     ParticleGenerator generator(numParticles);
     Particle* particleArray = generator.getArrayPtr();
     ParticleManager particleManager(numParticles, particleArray);
@@ -111,6 +113,10 @@ int main(int argc, char** argv) {
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
     int N = width * height;
     int wordsPerThread = (N + (gridSize.x * blockSize.x) - 1) / (gridSize.x * blockSize.x);
+
+    // Separate 1D launch config for particle kernels (particle count, not screen dimensions)
+    dim3 particleBlockSize(256);
+    dim3 particleGridSize((numParticles + 255) / 256);
 
     GLuint pbo = 0;
     cudaGraphicsResource* cudaResource = nullptr;
@@ -131,7 +137,6 @@ int main(int argc, char** argv) {
         std::cout << "GL Vendor: " << glGetString(GL_VENDOR) << std::endl;
 
         CUDA_CHECK(cudaSetDevice(cudaDevices[0]));
-        printCudaKernelDiagnostics(blockSize);
         CUDA_CHECK(cudaGraphicsGLRegisterBuffer(&cudaResource, pbo, cudaGraphicsRegisterFlagsWriteDiscard));
         
         CUDA_CHECK(cudaMalloc((void**)&camPtr, sizeof(CameraData)));
@@ -140,9 +145,9 @@ int main(int argc, char** argv) {
         CUDA_CHECK(cudaMalloc((void**)&particleArrayPtr, numParticles * sizeof(Particle)));
         CUDA_CHECK(cudaMemcpy(particleArrayPtr, particleArray, numParticles * sizeof(Particle), cudaMemcpyHostToDevice));
 
-        ParticleManager particleManagerDevice(numParticles, particleArrayPtr);
-        CUDA_CHECK(cudaMalloc((void**)&particleManagerPtr, sizeof(ParticleManager)));
-        CUDA_CHECK(cudaMemcpy(particleManagerPtr, &particleManagerDevice, sizeof(ParticleManager), cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMallocManaged((void**)&particleManagerPtr, sizeof(ParticleManager)));
+        new (particleManagerPtr) ParticleManager(numParticles, particleArrayPtr);
+
     }
     
     while (!glfw.shouldClose()) {
@@ -158,11 +163,20 @@ int main(int argc, char** argv) {
             fpsFrames = 0; lastFPSTime = now;
         }
         ++fpsFrames;
-        if (device == "cpu") render(&glfw, camData, &framebuffer);
+        // if (device == "cpu") render(&glfw, camData, &framebuffer);
         if (device == "cuda") {
-            cudaMemcpy(camPtr, &camData, sizeof(CameraData), cudaMemcpyHostToDevice);
+            launchParticleUpdate(particleManagerPtr, 0.01f, particleGridSize, particleBlockSize);
+            CUDA_CHECK(cudaMemcpy(camPtr, &camData, sizeof(CameraData), cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaDeviceSynchronize());
+
+            particleManagerPtr->resetGrid();
+            CUDA_CHECK(cudaDeviceSynchronize());
+
+            launchParticleGridUpdate(particleManagerPtr, particleGridSize, particleBlockSize);
+            CUDA_CHECK(cudaDeviceSynchronize());
+
             launchCudaRender(cudaResource, width, height, gridSize, blockSize, wordsPerThread, camPtr, particleManagerPtr);
-            cudaDeviceSynchronize();
+            CUDA_CHECK(cudaDeviceSynchronize());
             glfw.uploadFromPBO(pbo);
         }
         glfw.draw();
@@ -179,6 +193,7 @@ int main(int argc, char** argv) {
         cudaFree(camPtr);
     }
     if (particleManagerPtr != nullptr) {
+        particleManagerPtr->~ParticleManager();
         cudaFree(particleManagerPtr);
     }
     if (particleArrayPtr != nullptr) {

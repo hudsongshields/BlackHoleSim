@@ -38,12 +38,13 @@ class BaseRaymarch {
         }
         __host__ __device__ vec4 traceRay(ParticleManager* particleManager = nullptr) {
 
-            const float tMax = 25.0f;
+            const float tMax = 30.0f;
 
             float dt = 0.1f;
 
-            for (int i {0}; i < 256; ++i) {
-                CollisionType collision = checkCollision(dt, particleManager);
+            for (int i {0}; i < 128; ++i) {
+                float particleSpeed = 0.0f;
+                CollisionType collision = checkCollision(dt, particleSpeed, particleManager);
                 
                 if (t > tMax) break;
                 switch (collision) {
@@ -51,8 +52,8 @@ class BaseRaymarch {
                         return vec4(0.0f, 0.0f, 0.0f, 1.0f);
                     
                     case DISK: {
-                        float speed = glm::clamp(particleSpeed / 2.5f, 0.0f, 1.0f);
-                        float brightness = 0.4f + 1.2f * speed;
+                        float speed = glm::clamp(particleSpeed / 1.5f, 0.0f, 1.5f);
+                        float brightness = 0.4f + 1.8f * speed;
                         vec3 cool = vec3(1.80f, 0.55f, 0.15f);
                         vec3 hot  = vec3(0.40f, 0.80f, 2.20f);
                         vec3 color = glm::mix(cool, hot, speed);
@@ -84,19 +85,19 @@ class BaseRaymarch {
         float nearestParticleDist {1000.0f};
 
     private:
-        float particleSpeed = 0.0f;
         enum CollisionType {
             NONE,
             BLACKHOLE,
             DISK
         };
-        __host__ __device__ CollisionType checkCollision(float dt, ParticleManager* particleManager = nullptr) {
+        __host__ __device__ CollisionType checkCollision(float dt, float& particleSpeed, ParticleManager* particleManager = nullptr) {
             // adaptive dt
             dt = glm::clamp(dt * (rho / sphereRadius), 0.005f, dt * 2.0f);
             // now adapt to distance to nearest particle if in disk region
-            if (abs(position.y) < diskHeight && (sqrt(position.x * position.x + position.z * position.z) + 0.01f) < diskRadius) {
+            float r2 = sqrt(position.x * position.x + position.z * position.z);
+            if (abs(position.y) < diskHeight && (r2 + 0.01f) < diskRadius) {
                 if (particleManager) {
-                    dt = glm::min(dt, glm::clamp(nearestParticleDist * 0.5f, 0.001f, dt));
+                    dt = glm::clamp(nearestParticleDist, 0.005f, dt);
                 }
             }
             update(dt);
@@ -107,10 +108,11 @@ class BaseRaymarch {
             }
 
             // Check collision with accretion disk (short cylinder)
-            if (abs(position.y) < diskHeight && (sqrt(position.x * position.x + position.z * position.z) + 0.01f) < diskRadius) {
+            if (abs(position.y) < diskHeight && (r2 + 0.01f) < diskRadius) {
                 // Check for collision with particle in accretion disk
                 if (particleManager) {
                     nearestParticleDist = 1000.0f;
+                    /*
                     for (int i {0}; i < particleManager->numParticles; ++i) {
                         float dist = glm::length(position - (*particleManager)[i].position) - (*particleManager)[i].radius;
                         if (dist < nearestParticleDist) {
@@ -120,6 +122,12 @@ class BaseRaymarch {
                             particleSpeed = glm::length((*particleManager)[i].velocity);
                             return DISK;
                         }
+                    }
+                    */
+                    int hitIdx = particleManager->checkCollisions(position, nearestParticleDist);
+                    if (nearestParticleDist < 0.01f && hitIdx >= 0) {
+                        particleSpeed = glm::length((*particleManager)[hitIdx].velocity);
+                        return DISK;
                     }
                 }
             }

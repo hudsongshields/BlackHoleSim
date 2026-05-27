@@ -30,7 +30,7 @@ class ParticleGenerator {
 
                 for (auto& particle : particles) {
                     float angle = genAngle(rng);
-                    float minR = sphereRadius * 3.0f;
+                    float minR = sphereRadius * 2.0f;
                     float maxR = diskRadius;
                     float radial = std::sqrt(genUnit(rng)) * (maxR - minR) + minR;
 
@@ -53,6 +53,79 @@ class ParticleGenerator {
         }
 };
 
+
+constexpr int gridWidth = 128;
+struct ParticleGrid {
+    int* cellHeads;
+    int* nextParticles;
+
+    int gridWidth;
+    int numCells;
+    float cellSize;
+    vec3 center;
+    vec3 start;
+
+    __host__ ParticleGrid(int numParticles) 
+        : gridWidth(::gridWidth)
+        , numCells(::gridWidth * ::gridWidth)
+        , cellHeads(nullptr)
+        , nextParticles(nullptr)
+    {
+        cellSize = (::diskRadius * 2.0f) / gridWidth;
+        cudaMalloc(&cellHeads, numCells * sizeof(int));
+        cudaMalloc(&nextParticles, numParticles * sizeof(int));
+
+        cudaMemset(cellHeads, -1, numCells * sizeof(int));
+        cudaMemset(nextParticles, -1, numParticles * sizeof(int));
+
+        center = ::sphereCenter;
+        start = vec3(
+            center.x - diskRadius,
+            center.y,
+            center.z - diskRadius
+        );
+    }
+    __host__ ~ParticleGrid() {
+        cudaFree(cellHeads);
+        cudaFree(nextParticles);
+    };
+
+#ifdef __CUDACC__
+    __device__ void insert(Particle& particle, int particleIdx) {
+        vec3& pos {particle.position};
+        int x_idx {static_cast<int>(floor((pos.x - start.x) / cellSize))};
+        int z_idx {static_cast<int>(floor((pos.z - start.z) / cellSize))};
+
+        if (x_idx < 0 || x_idx >= gridWidth || z_idx < 0 || z_idx >= gridWidth) {
+            return;
+        }
+
+        int cellIdx {x_idx + z_idx * gridWidth};
+        int oldHead = atomicExch(&cellHeads[cellIdx], particleIdx);
+        nextParticles[particleIdx] = oldHead;
+    };
+#endif
+
+    __host__ __device__ int getCellParticles(vec3& pos) {
+        int x_idx {static_cast<int>(floor((pos.x - start.x) / cellSize))};
+        int z_idx {static_cast<int>(floor((pos.z - start.z) / cellSize))};
+
+        if (x_idx < 0 || x_idx >= gridWidth || z_idx < 0 || z_idx >= gridWidth) {
+            return -1;
+        }
+
+        int cellIdx {x_idx + z_idx * gridWidth};
+        return cellHeads[cellIdx];
+    };
+
+    __host__ __device__ int getNextParticle(int particleIdx) {
+        return nextParticles[particleIdx];
+    };
+
+    
+    
+};
+
 class ParticleManager {
     public:
         int numParticles;
@@ -60,6 +133,7 @@ class ParticleManager {
         ParticleManager(int maxParticles, Particle* externalArray)
             : numParticles(maxParticles)
             , particleArray(externalArray)
+            , grid(maxParticles)
             {}
 
         ~ParticleManager() = default;
@@ -69,32 +143,8 @@ class ParticleManager {
             return particleArray[index];
         }
 
-        __host__ std::vector<std::thread> updateParticles(float dt) {
-            unsigned int numThreads = std::max(1u, std::thread::hardware_concurrency());
-            unsigned int particlesPerThread = (numParticles + numThreads - 1) / numThreads;
-            std::vector<std::thread> threads;
-            auto updateRange = [this, dt](int start, int end) {
-                for (int i = start; i < end; ++i) {
-                    Particle& p = particleArray[i];
-                    vec3 toCenter = -p.position;
-                    float dist = glm::length(toCenter);
-                    vec3 accelDir = glm::normalize(toCenter);
-                    float accelMag = GM / (dist * dist + 0.01f);
-                    p.velocity += accelDir * accelMag * dt;
-                    p.position += p.velocity * dt;
-                }
-            };
-
-            for (unsigned int t = 0; t < numThreads; ++t) {
-                int start = t * particlesPerThread;
-                int end = std::min((int)(start + particlesPerThread), numParticles);
-                threads.emplace_back(updateRange, start, end);
-            }
-            return threads;
-        }
 
         __device__ void updateParticlesDevice(float dt, int idx) {
-            if (idx >= numParticles) return;
 
             Particle& p = particleArray[idx];
             vec3 toCenter = -p.position;
@@ -102,26 +152,86 @@ class ParticleManager {
             vec3 accelDir = glm::normalize(toCenter);
             float accelMag = GM / (dist * dist + 0.01f);
             p.velocity += accelDir * accelMag * dt;
+
+            // artificial transfer of orbital momentum
+            for (int i {0}; i < 2; ++i) {
+                vec3 ortho = glm::normalize(glm::cross(accelDir, vec3(0.f, 1.f, 0.f)));
+                p.velocity += ortho * accelMag * 0.1f * dt;
+            }
             p.position += p.velocity * dt;
+            handleFallInside(p);
         }
+#ifdef __CUDACC__
+        __device__ void updateGridDevice(int idx) {
+            grid.insert(particleArray[idx], idx);
+        }
+#endif
+
+        __host__ __device__ int checkCollisions(vec3& rayPos, float& nearestParticleDist) {
+            int nearestParticleIdx = -1;
+            int rayCellX = static_cast<int>(floor((rayPos.x - grid.start.x) / grid.cellSize));
+            int rayCellZ = static_cast<int>(floor((rayPos.z - grid.start.z) / grid.cellSize));
+            for (int offsetX = -1; offsetX <= 1; ++offsetX) {
+                for (int offsetZ = -1; offsetZ <= 1; ++offsetZ) {
+                    int cellX = rayCellX + offsetX;
+                    int cellZ = rayCellZ + offsetZ;
+                    if (cellX < 0 || cellX >= grid.gridWidth || cellZ < 0 || cellZ >= grid.gridWidth) continue;
+                    int particleIdx = grid.cellHeads[cellX + cellZ * grid.gridWidth];
+                    while (particleIdx != -1) {
+                        float surfaceDist = glm::length(rayPos - particleArray[particleIdx].position) - particleArray[particleIdx].radius;
+                        if (surfaceDist < nearestParticleDist) {
+                            nearestParticleDist = surfaceDist;
+                            nearestParticleIdx = particleIdx;
+                        }
+                        particleIdx = grid.getNextParticle(particleIdx);
+                    }
+                }
+            }
+            return nearestParticleIdx;
+        }
+
+        __host__ void resetGrid() {
+            cudaMemset(grid.cellHeads, -1, grid.numCells * sizeof(int));
+            cudaMemset(grid.nextParticles, -1, numParticles * sizeof(int));
+        }
+        #ifdef __CUDACC__
+        __device__ void resetGridDevice() {
+            int idx = threadIdx.x + blockIdx.x * blockDim.x;
+            int stride = blockDim.x * gridDim.x;
+            while (idx < grid.numCells) {
+                grid.cellHeads[idx] = -1;
+                idx += stride;
+            }
+            idx = threadIdx.x + blockIdx.x * blockDim.x;
+            while (idx < numParticles) {
+                grid.nextParticles[idx] = -1;
+                idx += stride;
+            }
+        }
+        #endif
 
     private:
         Particle* particleArray;
+        ParticleGrid grid;
+
         
         // if fall inside, respawn at random position on disk edge with velocity for circular orbit
         __host__ __device__ void handleFallInside(Particle& p) {
             float dist = glm::length(p.position);
-            if (dist < sphereRadius) {
+            if (dist < sphereRadius + 0.01f) {
                 float angle = atan2(p.position.z, p.position.x);
-                float respawnRadius = diskRadius * 0.9f;
+                
+                // spawn randomly between 0.85 and 0.95 of disk radius
+                float respawnRadius = diskRadius * (0.85f + 0.1f * (static_cast<float>(rand()) / RAND_MAX));
                 p.position = vec3(
-                    respawnRadius * std::cos(angle),
+                    respawnRadius * cosf(angle),
                     0.f,
-                    respawnRadius * std::sin(angle)
+                    respawnRadius * sinf(angle)
                 );
                 vec3 tangent = glm::normalize(vec3(-p.position.z, 0.0f, p.position.x));
                 float orbitSpeed = glm::clamp(std::sqrt(GM / respawnRadius), 0.2f, 2.5f);
                 p.velocity = tangent * orbitSpeed;
             }
         }
+        __host__ void initGrid(float cellSize);
 };

@@ -7,6 +7,7 @@
 #include "Raymarch.hpp"
 #include "particles.hpp"
 
+
 #ifndef __CUDACC__
 static const dim3 threadIdx {0, 0, 0};
 static const dim3 blockIdx  {0, 0, 0};
@@ -75,21 +76,24 @@ __global__ void render(vec4* fbo, int width, int height, int wordsPerThread, con
     int stride_x = blockDim.x * gridDim.x;
     int stride_y = blockDim.y * gridDim.y;
 
-    particleManager->updateParticlesDevice(0.004f, x);
-    __syncthreads();
+    for (int yy = y; yy < height; yy += stride_y) {
+        for (int xx = x; xx < width; xx += stride_x) {
+            float u = (xx + 0.5f) / float(width);
+            float v = (yy + 0.5f) / float(height);
 
-    for (int i {0}; i < wordsPerThread; ++i) {
-        int x_index = x + i * stride_x;
-        int y_index = y + i * stride_y;
-        if (x_index < width && y_index < height) {
-            float u = (x_index + 0.5f) / float(width);
-            float v = (y_index + 0.5f) / float(height);
             vec3 rayDir = computeRayDirWorld(u, v, sharedCamData, width, height);
-            Schwarzschild ray(sharedCamData->camPos, rayDir, d_GM_value, d_sphereCenter, d_sphereRadius, d_diskRadius);
+            Schwarzschild ray(
+                sharedCamData->camPos,
+                rayDir,
+                d_GM_value,
+                d_sphereCenter,
+                d_sphereRadius,
+                d_diskRadius
+            );
 
             vec4 pixel = static_cast<BaseRaymarch&>(ray).traceRay(particleManager);
 
-            fbo[y_index * width + x_index] = pixel;
+            fbo[yy * width + xx] = pixel;
         }
     }
 }
@@ -100,35 +104,6 @@ __host__ void init_gpu_constants() {
     cudaMemcpyToSymbol((const void*)&d_GM_value, &GM, sizeof(float));
     
     CUDA_ASYNC_CHECK();
-}
-
-__host__ void printCudaKernelDiagnostics(dim3 blockSize) {
-    int device = 0;
-    CUDA_CHECK(cudaGetDevice(&device));
-
-    cudaDeviceProp props{};
-    CUDA_CHECK(cudaGetDeviceProperties(&props, device));
-
-    const unsigned threadsPerBlock = blockSize.x * blockSize.y * blockSize.z;
-    const bool dimsOk =
-        blockSize.x <= static_cast<unsigned>(props.maxThreadsDim[0]) &&
-        blockSize.y <= static_cast<unsigned>(props.maxThreadsDim[1]) &&
-        blockSize.z <= static_cast<unsigned>(props.maxThreadsDim[2]);
-    const bool threadsOk = threadsPerBlock <= static_cast<unsigned>(props.maxThreadsPerBlock);
-
-    std::cout << "CUDA Device: " << props.name << "\n";
-    std::cout << "  maxThreadsPerBlock: " << props.maxThreadsPerBlock << "\n";
-    std::cout << "  maxThreadsDim: ["
-              << props.maxThreadsDim[0] << ", "
-              << props.maxThreadsDim[1] << ", "
-              << props.maxThreadsDim[2] << "]\n";
-    std::cout << "Requested blockSize: ["
-              << blockSize.x << ", "
-              << blockSize.y << ", "
-              << blockSize.z << "] => threadsPerBlock="
-              << threadsPerBlock << "\n";
-    std::cout << "  Dimension check: " << (dimsOk ? "PASS" : "FAIL") << "\n";
-    std::cout << "  Threads check: " << (threadsOk ? "PASS" : "FAIL") << "\n";
 }
 
 __host__ void launchCudaRender(
@@ -147,13 +122,46 @@ __host__ void launchCudaRender(
     CUDA_ASYNC_CHECK();
     CUDA_CHECK(cudaGraphicsMapResources(1, &cudaResource, 0));
     CUDA_CHECK(cudaGraphicsResourceGetMappedPointer((void**)&fbo, &numBytes, cudaResource));
-#ifdef __CUDACC__
-    render<<<gridSize, blockSize>>>(fbo, width, height, wordsPerThread, camData, particleManager);
-#endif
+    #ifdef __CUDACC__
+        render<<<gridSize, blockSize>>>(fbo, width, height, wordsPerThread, camData, particleManager);
+    #endif
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaResource, 0));
 }
 
 
+__global__ void updateParticlesDevice(ParticleManager* particleManager, float dt) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    int stride = blockDim.x * gridDim.x;
+    while (idx < particleManager->numParticles) {
+        particleManager->updateParticlesDevice(dt, idx);
+        idx += stride;
+    }
+}
+#ifdef __CUDACC__
+__global__ void updateParticleGridDevice(ParticleManager* particleManager) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    int stride = blockDim.x * gridDim.x;
+    while (idx < particleManager->numParticles) {
+        particleManager->updateGridDevice(idx);
+        idx += stride;
+    }
+}
+#endif
+
+
+__host__ void launchParticleUpdate(ParticleManager* particleManager, float dt, dim3 gridSize, dim3 blockSize) {
+    #ifdef __CUDACC__
+        updateParticlesDevice<<<gridSize, blockSize>>>(particleManager, dt);
+        CUDA_ASYNC_CHECK();
+    #endif
+}
+
+__host__ void launchParticleGridUpdate(ParticleManager* particleManager, dim3 gridSize, dim3 blockSize) {
+    #ifdef __CUDACC__
+        updateParticleGridDevice<<<gridSize, blockSize>>>(particleManager);
+        CUDA_ASYNC_CHECK();
+    #endif
+}
 
 // CPU-Based Rendering
 //--------------------

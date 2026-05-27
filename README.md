@@ -1,7 +1,7 @@
 ## What this repo is
-A C++ / OpenGL black hole visualization project where I experimented with light bending and gravitational lensing around a (Schwarzschild-inspired) black hole + a single horizontal accretion disk.
+A C++ / OpenGL black hole visualization project where I experimented with light bending and gravitational lensing around a (Schwarzschild-inspired) black hole + a single horizontal accretion disk. 
 
-This isn’t meant to be a perfect/validated physics simulator — it’s a learning project focused on:
+This isn’t meant to be a perfect/validated physics simulator - it’s a learning project focused on:
 - C++ graphics / rendering pipeline
 - CUDA programming and GPU memory interfacing
 - stepping rays through space
@@ -26,6 +26,9 @@ My derivations for the Newtonian and Schwarzschild numerical integration steps i
 - History & derivation: https://youtu.be/QbnkIdw0HJQ?si=i3TullrcJZamv8wM
 - Derivation (another perspective): https://youtu.be/VCHFCXgYdvY?si=ORQCPyDTA9AfSyg_
 
+### CUDA
+- https://docs.nvidia.com/cuda/cuda-programming-guide/
+
 ## If you’re browsing the code
 The core idea is: generate a camera ray -> step it forward -> check for BH/disk intersection -> shade the hit.
 Feel free to open issues if something’s confusing or you spot mistakes - I’m happy to improve the explanations.
@@ -33,3 +36,4 @@ Feel free to open issues if something’s confusing or you spot mistakes - I’m
 ## Next steps
 - The accretion disk could use n-body interactions and the Schwarzschild metric for improved accuracy
 - Implementing n-body interactions would also pose a more interesting GPU programming challenge
+

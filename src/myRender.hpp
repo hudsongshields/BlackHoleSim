@@ -38,6 +38,9 @@ __host__ void launchCudaRender(
     const CameraData* camData,
     ParticleManager* particleManager
 );
+__global__ void updateParticlesDevice(ParticleManager* particleManager, float dt);
+__host__ void launchParticleUpdate(ParticleManager* particleManager, float dt, dim3 gridSize, dim3 blockSize);
+__host__ void launchParticleGridUpdate(ParticleManager* particleManager, dim3 gridSize, dim3 blockSize);
 
 __host__ void init_gpu_constants();
 __host__ void printCudaKernelDiagnostics(dim3 blockSize);
