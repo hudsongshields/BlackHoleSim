@@ -103,7 +103,7 @@ class BaseRaymarch {
             update(dt);
 
             // Check collision with black hole (sphere)
-            if (rho <= sphereRadius) {
+            if (rho <= sphereRadius * 0.8f) {
                 return BLACKHOLE;
             }
 
@@ -112,18 +112,6 @@ class BaseRaymarch {
                 // Check for collision with particle in accretion disk
                 if (particleManager) {
                     nearestParticleDist = 1000.0f;
-                    /*
-                    for (int i {0}; i < particleManager->numParticles; ++i) {
-                        float dist = glm::length(position - (*particleManager)[i].position) - (*particleManager)[i].radius;
-                        if (dist < nearestParticleDist) {
-                            nearestParticleDist = dist;
-                        }
-                        if (dist < 0.01f) {
-                            particleSpeed = glm::length((*particleManager)[i].velocity);
-                            return DISK;
-                        }
-                    }
-                    */
                     int hitIdx = particleManager->checkCollisions(position, nearestParticleDist);
                     if (nearestParticleDist < 0.01f && hitIdx >= 0) {
                         particleSpeed = glm::length((*particleManager)[hitIdx].velocity);

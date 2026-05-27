@@ -24,7 +24,7 @@ class ParticleGenerator {
                 std::uniform_real_distribution<float> genY(-0.005f * diskRadius, 0.005f * diskRadius);
                 std::uniform_real_distribution<float> genJitter(-0.04f, 0.04f);
                 std::uniform_real_distribution<float> genJitterY(-0.005f, 0.005f);
-                std::normal_distribution<float> genRadius(0.01f, 0.005f);
+                std::normal_distribution<float> genRadius(0.0003f, 0.0015f);
 
                 particles.resize(maxParticles);
 
@@ -45,7 +45,7 @@ class ParticleGenerator {
 
                     particle.position = pos;
                     particle.velocity = tangent * orbitSpeed + vec3(genJitter(rng), genJitterY(rng), genJitter(rng));
-                    particle.radius = glm::clamp(genRadius(rng), 0.02f, 0.12f);
+                    particle.radius = glm::clamp(genRadius(rng), 0.0001f, 0.0004f);
                 }
             }
         Particle* getArrayPtr() {
@@ -54,7 +54,7 @@ class ParticleGenerator {
 };
 
 
-constexpr int gridWidth = 128;
+constexpr int gridWidth = 256;
 struct ParticleGrid {
     int* cellHeads;
     int* nextParticles;
@@ -71,7 +71,8 @@ struct ParticleGrid {
         , cellHeads(nullptr)
         , nextParticles(nullptr)
     {
-        cellSize = (::diskRadius * 2.0f) / gridWidth;
+        float offset = 0.1f;
+        cellSize = (::diskRadius * 2.0f + offset) / gridWidth;
         cudaMalloc(&cellHeads, numCells * sizeof(int));
         cudaMalloc(&nextParticles, numParticles * sizeof(int));
 
@@ -220,7 +221,7 @@ class ParticleManager {
             float dist = glm::length(p.position);
             if (dist < sphereRadius + 0.01f) {
                 float angle = atan2(p.position.z, p.position.x);
-                
+
                 // spawn randomly between 0.85 and 0.95 of disk radius
                 float respawnRadius = diskRadius * (0.85f + 0.1f * (static_cast<float>(rand()) / RAND_MAX));
                 p.position = vec3(

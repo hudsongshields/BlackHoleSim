@@ -194,6 +194,7 @@ public:
         );
         if (!_window) { std::cerr << "Window creation failed\n"; glfwTerminate(); std::exit(-1); }
         glfwMakeContextCurrent(_window.get());
+        glfwSwapInterval(0);
         glfwSetInputMode(_window.get(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
             std::cerr << "OpenGL load failed\n"; glfwTerminate(); std::exit(-1);

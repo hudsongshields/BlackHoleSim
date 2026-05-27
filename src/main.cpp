@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
     }
     // FOR CPU
     std::vector<vec4> framebuffer(width * height);
-    int numParticles = 10000;
+    int numParticles = 400000;
     ParticleGenerator generator(numParticles);
     Particle* particleArray = generator.getArrayPtr();
     ParticleManager particleManager(numParticles, particleArray);
@@ -114,7 +114,6 @@ int main(int argc, char** argv) {
     int N = width * height;
     int wordsPerThread = (N + (gridSize.x * blockSize.x) - 1) / (gridSize.x * blockSize.x);
 
-    // Separate 1D launch config for particle kernels (particle count, not screen dimensions)
     dim3 particleBlockSize(256);
     dim3 particleGridSize((numParticles + 255) / 256);
 
