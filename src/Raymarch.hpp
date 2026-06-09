@@ -1,7 +1,6 @@
 #pragma once
 #include "config.hpp"
 #include "particles.hpp"
-#include "utils/spaceshipSDF.hpp"
 
 #ifndef __CUDACC__
 #  ifndef __host__
@@ -37,7 +36,7 @@ class BaseRaymarch {
         __host__ __device__ float getR() const {
             return r;
         }
-        __host__ __device__ vec4 traceRay(ParticleManager* particleManager = nullptr, Spaceship* spaceship = nullptr) {
+        __host__ __device__ vec4 traceRay(ParticleManager* particleManager = nullptr) {
 
             const float tMax = 30.0f;
 
@@ -45,7 +44,7 @@ class BaseRaymarch {
 
             for (int i {0}; i < 128; ++i) {
                 float particleSpeed = 0.0f;
-                CollisionType collision = checkCollision(dt, particleSpeed, particleManager, spaceship);
+                CollisionType collision = checkCollision(dt, particleSpeed, particleManager);
                 
                 if (t > tMax) break;
                 switch (collision) {
@@ -94,18 +93,14 @@ class BaseRaymarch {
             DISK,
             SPACESHIP
         };
-        __host__ __device__ CollisionType checkCollision(float dt, float& particleSpeed, ParticleManager* particleManager = nullptr, Spaceship* spaceship = nullptr) {
+        __host__ __device__ CollisionType checkCollision(float dt, float& particleSpeed, ParticleManager* particleManager = nullptr) {
             float r2 = glm::sqrt(position.x * position.x + position.z * position.z);
-            float shipDist = spaceship ? spaceship->sdf(position) : FLT_MAX;
 
             // --- Adapt dt to relative distances ---
             float adaptedDt = dt * (rho / sphereRadius);
 
-            if (spaceship && shipDist < 0.9f) {
-                adaptedDt = glm::min(adaptedDt, shipDist);
-            }
 
-            if (!spaceship && abs(position.y) < diskHeight * 4.0f && (r2 + 0.01f) < diskRadius) {
+            if (abs(position.y) < diskHeight * 4.0f && (r2 + 0.01f) < diskRadius) {
                 if (particleManager) {
                     adaptedDt = glm::min(adaptedDt, nearestParticleDist);
                 }
@@ -117,10 +112,6 @@ class BaseRaymarch {
             // --- Collision checks ---
             if (rho <= sphereRadius * 0.8f) {   
                 return BLACKHOLE;
-            }
-
-            if (spaceship && shipDist < 0.01f) {
-                return SPACESHIP;
             }
 
             if (abs(position.y) < diskHeight && (r2 + 0.01f) < diskRadius) {

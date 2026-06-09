@@ -5,7 +5,6 @@
 #include "myGLFW.hpp"
 #include <cuda_runtime.h>
 #include "particles.hpp"
-#include "utils/spaceshipSDF.hpp"
 
 struct CameraData;
 
