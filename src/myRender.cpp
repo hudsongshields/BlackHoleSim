@@ -82,6 +82,7 @@ __global__ void render(vec4* fbo, int width, int height, int wordsPerThread, con
             float v = (yy + 0.5f) / float(height);
 
             vec3 rayDir = computeRayDirWorld(u, v, sharedCamData, width, height);
+            
             Schwarzschild ray(
                 sharedCamData->camPos,
                 rayDir,
@@ -90,6 +91,17 @@ __global__ void render(vec4* fbo, int width, int height, int wordsPerThread, con
                 d_sphereRadius,
                 d_diskRadius
             );
+            
+            /*
+            BaseRaymarch ray(
+                sharedCamData->camPos,
+                rayDir,
+                d_GM_value,
+                d_sphereCenter,
+                d_sphereRadius,
+                d_diskRadius
+            );
+            */
 
             vec4 pixel = static_cast<BaseRaymarch&>(ray).traceRay(particleManager);
 
@@ -128,7 +140,7 @@ __host__ void launchCudaRender(
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaResource, 0));
 }
 
-
+#ifdef __CUDACC__
 __global__ void updateParticlesDevice(ParticleManager* particleManager, float dt) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     int stride = blockDim.x * gridDim.x;
@@ -137,6 +149,7 @@ __global__ void updateParticlesDevice(ParticleManager* particleManager, float dt
         idx += stride;
     }
 }
+#endif
 #ifdef __CUDACC__
 __global__ void updateParticleGridDevice(ParticleManager* particleManager) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;

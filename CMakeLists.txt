@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.26.0)
+cmake_minimum_required(VERSION 3.10.0)
+set(CMAKE_TOOLCHAIN_FILE "C:/Users/hudso/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "" FORCE)
 project(black_hole_sim VERSION 1.0.0 LANGUAGES C CXX CUDA)
 
 cmake_policy(SET CMP0072 NEW)
@@ -7,14 +8,17 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
+find_package(Freetype REQUIRED)
 
 add_executable(black_hole_sim 
     src/config.hpp 
     src/main.cpp 
+    src/myGLFW.cpp
     dependencies/glad/glad.c 
     src/stb_image_impl.cpp 
     src/LightRay.cpp 
@@ -50,4 +54,5 @@ target_link_libraries(black_hole_sim PRIVATE
     glfw 
     OpenGL::GL 
     CUDA::cudart
+    Freetype::Freetype
 )

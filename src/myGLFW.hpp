@@ -1,6 +1,7 @@
 #pragma once
 #include "config.hpp"
 #include "stb_image.h"
+#include <array>
 
 // CameraData - owns all camera and mouse state
 // ---------------------------------------------------------------------------
@@ -55,6 +56,13 @@ struct CameraData {
 // ---------------------------------------------------------------------------
 class myGLFW {
 private:
+    struct Glyph {
+        GLuint textureID = 0;
+        glm::ivec2 size{0, 0};
+        glm::ivec2 bearing{0, 0};
+        unsigned int advance = 0;
+    };
+
     std::shared_ptr<GLFWwindow> _window;
     CameraData* _camData = nullptr;
     GLuint _sceneProgram = 0;
@@ -80,6 +88,14 @@ private:
     GLint _blurHorizontalLoc = -1;
     GLint _finalBloomStrengthLoc = -1;
     GLint _finalExposureLoc = -1;
+
+    bool _fpsEnabled = false;
+    GLuint _fpsProgram = 0;
+    GLuint _fpsVAO = 0;
+    GLuint _fpsVBO = 0;
+    GLint _fpsProjectionLoc = -1;
+    GLint _fpsColorLoc = -1;
+    std::array<Glyph, 128> _glyphs{};
 
     static GLuint makeModule(const std::string& path, GLenum type) {
         std::ifstream file(path);
@@ -185,6 +201,9 @@ private:
         glDrawArrays(GL_TRIANGLES, 0, 3);
     }
 
+    float textWidthPx(const std::string& text, float scale) const;
+    void drawText(const std::string& text, float x, float y, float scale, const glm::vec3& color);
+
 public:
     myGLFW(int width, int height) : _width(width), _height(height) {
         if (!glfwInit()) { std::cerr << "GLFW init failed\n"; std::exit(-1); }
@@ -206,6 +225,12 @@ public:
         if (_extractProgram) glDeleteProgram(_extractProgram);
         if (_blurProgram)    glDeleteProgram(_blurProgram);
         if (_finalProgram)   glDeleteProgram(_finalProgram);
+        if (_fpsProgram)     glDeleteProgram(_fpsProgram);
+        if (_fpsVAO)         glDeleteVertexArrays(1, &_fpsVAO);
+        if (_fpsVBO)         glDeleteBuffers(1, &_fpsVBO);
+        for (auto& glyph : _glyphs) {
+            if (glyph.textureID) glDeleteTextures(1, &glyph.textureID);
+        }
         if (_vao)      glDeleteVertexArrays(1, &_vao);
         if (_vbo)      glDeleteBuffers(1, &_vbo);
         if (_sceneTex) glDeleteTextures(1, &_sceneTex);
@@ -216,6 +241,9 @@ public:
         _window.reset();
         glfwTerminate();
     }
+
+    bool setupFPSCounter(const std::string& fontPath, int pixelSize = 24);
+    void drawFPSCounter(float fpsValue);
 
     void setCameraData(CameraData& cam) {
         _camData = &cam;

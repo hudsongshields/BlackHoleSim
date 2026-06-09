@@ -1,6 +1,7 @@
 #pragma once
 #include "config.hpp"
 #include "particles.hpp"
+#include "utils/spaceshipSDF.hpp"
 
 #ifndef __CUDACC__
 #  ifndef __host__
@@ -36,7 +37,7 @@ class BaseRaymarch {
         __host__ __device__ float getR() const {
             return r;
         }
-        __host__ __device__ vec4 traceRay(ParticleManager* particleManager = nullptr) {
+        __host__ __device__ vec4 traceRay(ParticleManager* particleManager = nullptr, Spaceship* spaceship = nullptr) {
 
             const float tMax = 30.0f;
 
@@ -44,7 +45,7 @@ class BaseRaymarch {
 
             for (int i {0}; i < 128; ++i) {
                 float particleSpeed = 0.0f;
-                CollisionType collision = checkCollision(dt, particleSpeed, particleManager);
+                CollisionType collision = checkCollision(dt, particleSpeed, particleManager, spaceship);
                 
                 if (t > tMax) break;
                 switch (collision) {
@@ -59,6 +60,8 @@ class BaseRaymarch {
                         vec3 color = glm::mix(cool, hot, speed);
                         return brightness * vec4(color, 1.0f);
                     }
+                    case SPACESHIP:
+                        return vec4(1.0f, 0.5f, 0.0f, 1.0f);
                     
                     case NONE:
                         break;
@@ -88,28 +91,39 @@ class BaseRaymarch {
         enum CollisionType {
             NONE,
             BLACKHOLE,
-            DISK
+            DISK,
+            SPACESHIP
         };
-        __host__ __device__ CollisionType checkCollision(float dt, float& particleSpeed, ParticleManager* particleManager = nullptr) {
-            // adaptive dt
-            dt = glm::clamp(dt * (rho / sphereRadius), 0.005f, dt * 2.0f);
-            // now adapt to distance to nearest particle if in disk region
-            float r2 = sqrt(position.x * position.x + position.z * position.z);
-            if (abs(position.y) < diskHeight && (r2 + 0.01f) < diskRadius) {
+        __host__ __device__ CollisionType checkCollision(float dt, float& particleSpeed, ParticleManager* particleManager = nullptr, Spaceship* spaceship = nullptr) {
+            float r2 = glm::sqrt(position.x * position.x + position.z * position.z);
+            float shipDist = spaceship ? spaceship->sdf(position) : FLT_MAX;
+
+            // --- Adapt dt to relative distances ---
+            float adaptedDt = dt * (rho / sphereRadius);
+
+            if (spaceship && shipDist < 0.9f) {
+                adaptedDt = glm::min(adaptedDt, shipDist);
+            }
+
+            if (!spaceship && abs(position.y) < diskHeight * 4.0f && (r2 + 0.01f) < diskRadius) {
                 if (particleManager) {
-                    dt = glm::clamp(nearestParticleDist, 0.005f, dt);
+                    adaptedDt = glm::min(adaptedDt, nearestParticleDist);
                 }
             }
+
+            dt = glm::clamp(adaptedDt, 0.001f, dt * 2.0f);
             update(dt);
 
-            // Check collision with black hole (sphere)
-            if (rho <= sphereRadius * 0.8f) {
+            // --- Collision checks ---
+            if (rho <= sphereRadius * 0.8f) {   
                 return BLACKHOLE;
             }
 
-            // Check collision with accretion disk (short cylinder)
+            if (spaceship && shipDist < 0.01f) {
+                return SPACESHIP;
+            }
+
             if (abs(position.y) < diskHeight && (r2 + 0.01f) < diskRadius) {
-                // Check for collision with particle in accretion disk
                 if (particleManager) {
                     nearestParticleDist = 1000.0f;
                     int hitIdx = particleManager->checkCollisions(position, nearestParticleDist);
@@ -119,10 +133,13 @@ class BaseRaymarch {
                     }
                 }
             }
-
             return NONE;
         }
-        __host__ __device__ virtual void update(float dt) = 0;
+        __host__ __device__ virtual void update(float dt) {
+            position += direction * dt;
+            rho = glm::length(position);
+            r = glm::length(vec2(position.x, position.z));
+        };
 
 };
 
@@ -168,3 +185,4 @@ class Schwarzschild : public BaseRaymarch {
 
         __host__ __device__ void update(float dt) override;
 };
+

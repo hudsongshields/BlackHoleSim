@@ -8,18 +8,25 @@ __host__ __device__ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3&
 {
     rho = glm::length(position);
     u = 1.0f / rho;
-    b = glm::length(glm::cross(position, direction));
-
-    vec3 normal = glm::cross(position, direction);
     radial_dir = glm::normalize(position);
-    tangential_dir = glm::cross(normal, radial_dir);
-    if (length(tangential_dir) < 0.0001f) {
-        // 
+
+    // Build a stable tangent basis in the orbital plane.
+    vec3 tangential = direction - glm::dot(direction, radial_dir) * radial_dir;
+    float tangentialLen = glm::length(tangential);
+
+    if (tangentialLen < 1e-6f) {
+        vec3 up = glm::abs(radial_dir.y) < 0.99f
+            ? vec3(0.0f, 1.0f, 0.0f)
+            : vec3(1.0f, 0.0f, 0.0f);
+        tangential = glm::cross(up, radial_dir);
+        tangentialLen = glm::length(tangential);
     }
-    tangential_dir = glm::normalize(tangential_dir);
+
+    tangential_dir = tangential / glm::max(tangentialLen, 1e-6f);
+    b = rho * tangentialLen;
 
     phi = 0.0f;
-    sign = glm::dot(position, direction) >= 0.0f ? 1 : -1;
+    sign = glm::dot(direction, radial_dir) >= 0.0f ? 1 : -1;
 
     r = glm::length(vec2(position.x, position.z));
     theta = 3.14159265359/2.0f;
@@ -29,13 +36,12 @@ __host__ __device__ Schwarzschild::Schwarzschild(const vec3& r_init, const vec3&
 __host__ __device__ void Schwarzschild::update(float lambda) {
     float phi_dot = b * u * u;
     phi += phi_dot * lambda;
-    r_dot = 1.0f - (1.0f - 2.0f * GM * u) * (b * b * u * u);
-    if (r_dot <= 0.0f) r_dot = 0.0f;
-    r_dot = std::sqrt(r_dot);
+    float radialSq = 1.0f - (1.0f - 2.0f * GM * u) * (b * b * u * u);
+    r_dot = std::sqrt(glm::max(radialSq, 0.0f));
 
     float epsilon = 1e-3f;
-    if (r_dot < epsilon) {
-        sign = -sign;
+    if (sign < 0 && r_dot < epsilon) {
+        sign = 1;
     }
     r_dot = sign * r_dot;
     rho += r_dot * lambda;

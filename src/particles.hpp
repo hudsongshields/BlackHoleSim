@@ -4,9 +4,11 @@
 #include <cmath>
 
 struct Particle {
-    float radius;
     vec3 position;
     vec3 velocity;
+    float radius;
+    float mass;
+    int collisionHandled = 0;
 };
 
 class ParticleGenerator {
@@ -20,12 +22,20 @@ class ParticleGenerator {
                 std::mt19937 rng(42);
 
                 std::uniform_real_distribution<float> genUnit(0.f, 1.f);
-                std::uniform_real_distribution<float> genAngle(0.f, 6.283185307f);
-                std::uniform_real_distribution<float> genY(-0.005f * diskRadius, 0.005f * diskRadius);
+                std::uniform_real_distribution<float> genAngle(0.f, 2*PI);
+                std::uniform_real_distribution<float> genY(-0.025f * diskRadius, 0.025f * diskRadius);
                 std::uniform_real_distribution<float> genJitter(-0.04f, 0.04f);
                 std::uniform_real_distribution<float> genJitterY(-0.005f, 0.005f);
-                std::normal_distribution<float> genRadius(0.0003f, 0.0015f);
-
+                
+                constexpr float maxRadius = 0.05f;
+                constexpr float minRadius = 0.00001f;
+                std::uniform_real_distribution<float> chanceRadius(0.f, 1.f);
+                std::uniform_real_distribution<float> genSmallRadius(minRadius, 0.00004f);
+                std::uniform_real_distribution<float> genLargeRadius(0.005f, maxRadius);
+                auto genRadius = [&](std::mt19937& rng) {
+                    return chanceRadius(rng) < 0.998f ? genSmallRadius(rng) : genLargeRadius(rng);
+                };
+    
                 particles.resize(maxParticles);
 
                 for (auto& particle : particles) {
@@ -45,16 +55,21 @@ class ParticleGenerator {
 
                     particle.position = pos;
                     particle.velocity = tangent * orbitSpeed + vec3(genJitter(rng), genJitterY(rng), genJitter(rng));
-                    particle.radius = glm::clamp(genRadius(rng), 0.0001f, 0.0004f);
+                    particle.radius = glm::clamp(genRadius(rng), minRadius, maxRadius);
+                    particle.mass = ::M * std::pow(particle.radius, 3) / std::pow(::sphereRadius, 3);
                 }
             }
         Particle* getArrayPtr() {
             return particles.data();
         }
 };
+struct ParticleCell {
+    vec3 centerMass;
+    float totalMass;
+};
 
 
-constexpr int gridWidth = 256;
+constexpr int gridWidth = 1024;
 struct ParticleGrid {
     int* cellHeads;
     int* nextParticles;
@@ -155,7 +170,7 @@ class ParticleManager {
             p.velocity += accelDir * accelMag * dt;
 
             // artificial transfer of orbital momentum
-            for (int i {0}; i < 2; ++i) {
+            for (int i {0}; i < 3; ++i) {
                 vec3 ortho = glm::normalize(glm::cross(accelDir, vec3(0.f, 1.f, 0.f)));
                 p.velocity += ortho * accelMag * 0.1f * dt;
             }

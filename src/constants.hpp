@@ -1,5 +1,8 @@
 #include <glm/glm.hpp>
+constexpr float PI = 3.14159265358979323846f;
+
 constexpr float GM = 1.0f;
+constexpr float M = 1.0f;
 const int width = 1920, height = 1080;
 
 const float fov              = glm::radians(90.f);
